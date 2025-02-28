@@ -5,7 +5,7 @@ import crypto from "crypto";
 import cors from "cors";
 import { GameState } from "./GameState.mjs";
 
-const PORT = 3000;
+const PORT = 3002;
 const app = express();
 const server = createServer(app);
 
