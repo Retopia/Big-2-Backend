@@ -11,6 +11,7 @@ const server = createServer(app);
 
 const allowedOrigins = [
   "https://big2.prestontang.dev",
+  "https://big2.live",
   "http://localhost:5173",
 ];
 
