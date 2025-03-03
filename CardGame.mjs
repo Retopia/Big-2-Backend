@@ -11,12 +11,12 @@ export function getCardValue(card) {
     default: value = parseInt(card.value); break;
   }
 
-  // Add suit weight (Spade > Heart > Diamond > Club)
+  // Add suit weight (Spade > Heart > Club > Diamond)
   switch (card.suit) {
     case '♠': value += 0.4; break;
     case '♥': value += 0.3; break;
-    case '♦': value += 0.2; break;
-    case '♣': value += 0.1; break;
+    case '♣': value += 0.2; break;
+    case '♦': value += 0.1; break;
   }
 
   return value;
@@ -268,13 +268,47 @@ export function getHandRank(handType) {
   return rankings[handType] || 0;
 }
 
+export function sortPlaysByStrength(plays) {
+  return [...plays].sort((a, b) => {
+    // First compare by number of cards (1 card < 2 cards < 3 cards < 5 cards)
+    if (a.length !== b.length) {
+      return a.length - b.length;
+    }
+    
+    // For plays with the same number of cards, compare by hand type and value
+    const handA = validateHand(a);
+    const handB = validateHand(b);
+    
+    // For 5-card plays, compare by hand type rank first
+    if (a.length === 5) {
+      const rankA = getHandRank(handA.type);
+      const rankB = getHandRank(handB.type);
+      
+      if (rankA !== rankB) {
+        return rankA - rankB; // Lower rank first
+      }
+    }
+    
+    // Compare by the hand value
+    return handA.value - handB.value; // Lower value first
+  });
+}
+
 export function calculateAIMove(cards, lastPlayedCards) {
   const possiblePlays = calculatePossiblePlays(cards, lastPlayedCards);
   
   if (possiblePlays.length > 0) {
+    const sortedPlays = sortPlaysByStrength(possiblePlays);
+    
+    const formattedPlays = sortedPlays.map(play => {
+      return play.map(card => `${card.value}${card.suit}`).join(',');
+    }).join(' | ');
+    
+    console.log('Sorted plays (weakest to strongest):', formattedPlays);
+    
     return {
       action: 'play',
-      cards: possiblePlays[0]
+      cards: sortedPlays[0] // Choose the weakest valid play
     };
   }
 
