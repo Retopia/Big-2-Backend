@@ -4,13 +4,15 @@ export class GameState {
   constructor(players) {
     this.players = players;
     this.currentPlayerIndex = 0;
-    this.playedCards = []; // The last played hand on the table
+    this.lastPlayedHand = []; // The last played hand on the table
     this.scores = {}; // Keeps track of wins
     this.playerHands = {};
+    this.moveHistory = []; // An array of {name, handPlayed}
     this.round = 1;
     this.lastValidPlayIndex = null; // Track who made the last valid play
     this.passedPlayers = [];
     this.deck = this.createDeck();
+    this.lowestCardValue = null;
 
     this.initializeGame();
   }
@@ -47,7 +49,7 @@ export class GameState {
 
     // Find player with the lowest card (3 of clubs with value 3.1)
     let lowestCardPlayerIndex = 0;
-    let lowestCard = { value: Infinity };
+    let lowestCardValue = Infinity;
     let foundLowestClub = false;
 
     // First search for the 3 of clubs (value 3.1) specifically
@@ -59,6 +61,7 @@ export class GameState {
         const cardValue = CardGame.getCardValue(card);
         if (cardValue === 3.1) {
           lowestCardPlayerIndex = i;
+          lowestCardValue = cardValue
           foundLowestClub = true;
           break;
         }
@@ -75,13 +78,14 @@ export class GameState {
 
         for (const card of hand) {
           const cardValue = CardGame.getCardValue(card);
-          if (cardValue < CardGame.getCardValue(lowestCard)) {
-            lowestCard = card;
+          if (cardValue < lowestCardValue) {
+            lowestCardValue = cardValue;
             lowestCardPlayerIndex = i;
           }
         }
       }
     }
+
 
     // If there's a leftover card (in 2 or 3 player mode), give it to the player with the lowest card
     if (this.players.length < 4 && this.deck.length > 0) {
@@ -89,6 +93,10 @@ export class GameState {
       const playerWithLowestCard = this.players[lowestCardPlayerIndex].name;
       this.playerHands[playerWithLowestCard].push(extraCard);
     }
+
+    console.log("Lowest card value:", lowestCardValue);
+
+    this.lowestCardValue = lowestCardValue;
 
     // Set the starting player to the one with the lowest card
     this.currentPlayerIndex = lowestCardPlayerIndex;
@@ -116,7 +124,7 @@ export class GameState {
     }
 
     // Validate the play according to game rules
-    const validationResult = CardGame.validatePlay(this.playedCards, cards);
+    const validationResult = CardGame.validatePlay(this.moveHistory, this.lastPlayedHand, cards, this.lowestCardValue);
     if (!validationResult.valid) {
       return { success: false, message: validationResult.message };
     }
@@ -141,7 +149,10 @@ export class GameState {
     }
 
     // Set played cards
-    this.playedCards = [...cards];
+    this.lastPlayedHand = [...cards];
+    
+    // Update history
+    this.moveHistory.push({name: playerName, handPlayed: cards})
 
     // Check if player has emptied their hand (win condition)
     if (hand.length === 0) {
@@ -175,7 +186,7 @@ export class GameState {
     }
 
     // Check if the player can pass
-    if (this.playedCards.length === 0) {
+    if (this.lastPlayedHand.length === 0) {
       return { success: false, message: "Cannot pass on first play" };
     }
 
@@ -191,7 +202,7 @@ export class GameState {
       console.log("All players except one have passed, starting new round");
       // Everyone else has passed, new round starts with the last player who made a valid play
       this.currentPlayerIndex = this.lastValidPlayIndex;
-      this.playedCards = []; // Clear played cards for new round
+      this.lastPlayedHand = []; // Clear played cards for new round
       this.passedPlayers = []; // Reset passed players for new round
       this.round += 1;
 
@@ -217,7 +228,7 @@ export class GameState {
     console.log("AI Turn", aiPlayer);
     console.log("Passed players count", this.passedPlayers.length);
     const hand = this.playerHands[aiPlayer.name];
-    const moveResult = CardGame.calculateAIMove(hand, this.playedCards);
+    const moveResult = CardGame.calculateAIMove(hand, this.lastPlayedHand);
 
     if (moveResult.action === 'play') {
       return this.playCards(aiPlayer.name, moveResult.cards);

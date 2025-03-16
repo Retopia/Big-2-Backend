@@ -136,21 +136,21 @@ testResult('Royal Flush', validateHand([cards.club10, cards.clubJ, cards.clubQ, 
   { valid: true, type: "royal_flush", value: 14.1 });
 
 // Setup for validatePlay tests
-let playedCards = [];
+let lastPlayedHand = [];
 
-// Wrapper function for validatePlay that accepts playedCards as parameter
-function testValidatePlay(cards, lastPlayedCards) {
-  // Store the original playedCards
-  const originalPlayedCards = playedCards;
+// Wrapper function for validatePlay that accepts lastPlayedHand as parameter
+function testValidatePlay(cards, lastlastPlayedHand) {
+  // Store the original lastPlayedHand
+  const originallastPlayedHand = lastPlayedHand;
   
-  // Set playedCards for the test
-  playedCards = lastPlayedCards || [];
+  // Set lastPlayedHand for the test
+  lastPlayedHand = lastlastPlayedHand || [];
   
   // Call validatePlay
-  const result = validatePlay(lastPlayedCards, cards);
+  const result = validatePlay(lastlastPlayedHand, cards);
   
-  // Restore original playedCards
-  playedCards = originalPlayedCards;
+  // Restore original lastPlayedHand
+  lastPlayedHand = originallastPlayedHand;
   
   return result;
 }
