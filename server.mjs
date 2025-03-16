@@ -71,8 +71,8 @@ class Room {
 }
 
 function generateRandomUsername() {
-  const adjectives = ["Swift", "Brave", "Clever", "Witty", "Mighty"];
-  const nouns = ["Lion", "Wolf", "Penguin", "Tiger", "Eagle", "Falcon", "Cheetah"];
+  const adjectives = ["Swift", "Brave", "Clever", "Witty", "Mighty", "Strong", "Thoughtful"];
+  const nouns = ["Lion", "Wolf", "Penguin", "Tiger", "Eagle", "Falcon", "Cheetah", "Elephant"];
   return adjectives[Math.floor(Math.random() * adjectives.length)] +
     nouns[Math.floor(Math.random() * nouns.length)] +
     Math.floor(Math.random() * 1000)
@@ -92,7 +92,7 @@ function broadcastGameState(room) {
     if (!player.isAI && player.id) {
       const playerView = {
         hand: room.gameState.playerHands[player.name] || [],
-        playedCards: room.gameState.playedCards,
+        lastPlayedHand: room.gameState.lastPlayedHand,
         currentPlayer: room.gameState.getCurrentPlayer().name,
         players: room.players.map(p => ({
           name: p.name,

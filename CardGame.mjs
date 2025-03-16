@@ -201,20 +201,36 @@ export function validateHand(cards) {
   return { valid: false, message: "Invalid number of cards" };
 }
 
-export function validatePlay(playedCards, cards) {
+export function validatePlay(moveHistory, lastPlayedHand, cards, lowestCardValue) {
   // First validate if the cards form a valid hand
   const handValid = validateHand(cards);
   if (!handValid.valid) {
-    return handValid;
+    return { valid: false, message: handValid.message };
   }
 
-  // If this is the first play or the play pile is empty
-  if (!playedCards || playedCards.length === 0) {
-    return handValid;
+  // If the play pile is empty
+  if (lastPlayedHand.length === 0) {
+    // If this is the first move of the game
+    if (moveHistory.length === 0) {
+      // Check to see if cards contains card of the lowest card value
+      let containsSmallest = false;
+      for (let i = 0; i < cards.length; i++) {
+        if (this.getCardValue(cards[i]) === lowestCardValue) {
+          containsSmallest = true;
+          break;
+        }
+      }
+
+      if (!containsSmallest) {
+        return { valid: false, message: "You must play the smallest card when starting the game" }
+      }
+      return { valid: handValid.valid };
+    }
+    return { valid: handValid.valid };
   }
 
   // Validate the last played hand
-  const lastPlayedValid = validateHand(playedCards);
+  const lastPlayedValid = validateHand(lastPlayedHand);
 
   // Simple hands (single, pair, triple) must match types
   if (cards.length < 5) {
@@ -229,7 +245,7 @@ export function validatePlay(playedCards, cards) {
     }
   } else if (cards.length === 5) {
     // If previous play was also a 5-card hand
-    if (playedCards.length === 5) {
+    if (lastPlayedHand.length === 5) {
       // Get hierarchy rank for both hands
       const currentRank = getHandRank(handValid.type);
       const previousRank = getHandRank(lastPlayedValid.type);
@@ -274,38 +290,38 @@ export function sortPlaysByStrength(plays) {
     if (a.length !== b.length) {
       return a.length - b.length;
     }
-    
+
     // For plays with the same number of cards, compare by hand type and value
     const handA = validateHand(a);
     const handB = validateHand(b);
-    
+
     // For 5-card plays, compare by hand type rank first
     if (a.length === 5) {
       const rankA = getHandRank(handA.type);
       const rankB = getHandRank(handB.type);
-      
+
       if (rankA !== rankB) {
         return rankA - rankB; // Lower rank first
       }
     }
-    
+
     // Compare by the hand value
     return handA.value - handB.value; // Lower value first
   });
 }
 
-export function calculateAIMove(cards, lastPlayedCards) {
-  const possiblePlays = calculatePossiblePlays(cards, lastPlayedCards);
-  
+export function calculateAIMove(cards, lastlastPlayedHand) {
+  const possiblePlays = calculatePossiblePlays(cards, lastlastPlayedHand);
+
   if (possiblePlays.length > 0) {
     const sortedPlays = sortPlaysByStrength(possiblePlays);
-    
+
     const formattedPlays = sortedPlays.map(play => {
       return play.map(card => `${card.value}${card.suit}`).join(',');
     }).join(' | ');
-    
+
     console.log('Sorted plays (weakest to strongest):', formattedPlays);
-    
+
     return {
       action: 'play',
       cards: sortedPlays[0] // Choose the weakest valid play
@@ -322,15 +338,15 @@ export function calculatePossiblePlays(cards, lastPlayedHand) {
   if (!lastPlayedHand || lastPlayedHand.length === 0) {
     return calculateAllValidHands(cards);
   }
-  
+
   // Validate the last played hand to get its type and value
   const lastHandResult = validateHand(lastPlayedHand);
   if (!lastHandResult.valid) {
     return []; // Something's wrong with the last played hand
   }
-  
+
   const possiblePlays = [];
-  
+
   // Handle singles (1 card)
   if (lastHandResult.type === "single") {
     // Find all singles higher than the last played single
@@ -341,59 +357,59 @@ export function calculatePossiblePlays(cards, lastPlayedHand) {
       }
     });
   }
-  
+
   // Handle pairs (2 cards)
   else if (lastHandResult.type === "pair") {
     // Group cards by value
     const cardsByValue = groupCardsByValue(cards);
-    
+
     // Find all pairs higher than the last played pair
     Object.entries(cardsByValue).forEach(([value, cards]) => {
       if (cards.length >= 2) {
         // Calculate the value of the highest card in the pair
         const pairCards = cards.slice(0, 2);
         const pairValue = Math.max(...pairCards.map(c => getCardValue(c)));
-        
+
         if (pairValue > lastHandResult.value) {
           possiblePlays.push(pairCards);
         }
       }
     });
   }
-  
+
   // Handle triples (3 cards)
   else if (lastHandResult.type === "triple") {
     // Group cards by value
     const cardsByValue = groupCardsByValue(cards);
-    
+
     // Find all triples higher than the last played triple
     Object.entries(cardsByValue).forEach(([value, cards]) => {
       if (cards.length >= 3) {
         // Calculate the value of the highest card in the triple
         const tripleCards = cards.slice(0, 3);
         const tripleValue = Math.max(...tripleCards.map(c => getCardValue(c)));
-        
+
         if (tripleValue > lastHandResult.value) {
           possiblePlays.push(tripleCards);
         }
       }
     });
   }
-  
+
   // Handle 5-card hands
   else if (lastPlayedHand.length === 5) {
     // Get all possible 5-card combinations
     const combinations = getAllFiveCardCombinations(cards);
-    
+
     // Filter for valid hands that can beat the last played hand
     for (const combo of combinations) {
       const handResult = validateHand(combo);
-      
+
       if (handResult.valid) {
         // Get rank of both hands
         const comboRank = getHandRank(handResult.type);
         const lastHandRank = getHandRank(lastHandResult.type);
-        
+
         // Higher ranked hand type
         if (comboRank > lastHandRank) {
           possiblePlays.push(combo);
@@ -405,47 +421,47 @@ export function calculatePossiblePlays(cards, lastPlayedHand) {
       }
     }
   }
-  
+
   return possiblePlays;
 }
 
 // Helper method to group cards by their value
 export function groupCardsByValue(cards) {
   const groups = {};
-  
+
   cards.forEach(card => {
     if (!groups[card.value]) {
       groups[card.value] = [];
     }
     groups[card.value].push(card);
   });
-  
+
   return groups;
 }
 
 // Generate all possible 5-card combinations from the hand
 export function getAllFiveCardCombinations(cards) {
   const result = [];
-  
+
   // Skip if we don't have at least 5 cards
   if (cards.length < 5) {
     return result;
   }
-  
+
   // Recursive helper to generate combinations
   const generateCombos = (start, currentCombo) => {
     if (currentCombo.length === 5) {
       result.push([...currentCombo]);
       return;
     }
-    
+
     for (let i = start; i < cards.length; i++) {
       currentCombo.push(cards[i]);
       generateCombos(i + 1, currentCombo);
       currentCombo.pop();
     }
   };
-  
+
   generateCombos(0, []);
   return result;
 }
@@ -453,12 +469,12 @@ export function getAllFiveCardCombinations(cards) {
 // When no last played hand, calculate all valid hands possible
 export function calculateAllValidHands(cards) {
   const possiblePlays = [];
-  
+
   // Add all singles
   cards.forEach(card => {
     possiblePlays.push([card]);
   });
-  
+
   // Add all pairs
   const cardsByValue = groupCardsByValue(cards);
   Object.values(cardsByValue).forEach(valueCards => {
@@ -471,7 +487,7 @@ export function calculateAllValidHands(cards) {
       }
     }
   });
-  
+
   // Add all triples
   Object.values(cardsByValue).forEach(valueCards => {
     if (valueCards.length >= 3) {
@@ -485,7 +501,7 @@ export function calculateAllValidHands(cards) {
       }
     }
   });
-  
+
   // Add all valid 5-card hands
   const fiveCardCombos = getAllFiveCardCombinations(cards);
   fiveCardCombos.forEach(combo => {
@@ -494,6 +510,6 @@ export function calculateAllValidHands(cards) {
       possiblePlays.push(combo);
     }
   });
-  
+
   return possiblePlays;
 }
