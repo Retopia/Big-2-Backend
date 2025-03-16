@@ -1,3 +1,5 @@
+import * as AIStrategy from './AIStrategy.mjs';
+
 // Get numerical value of a card for comparison (higher is better)
 export function getCardValue(card) {
   // Define value based on card value
@@ -310,27 +312,8 @@ export function sortPlaysByStrength(plays) {
   });
 }
 
-export function calculateAIMove(cards, lastlastPlayedHand) {
-  const possiblePlays = calculatePossiblePlays(cards, lastlastPlayedHand);
-
-  if (possiblePlays.length > 0) {
-    const sortedPlays = sortPlaysByStrength(possiblePlays);
-
-    const formattedPlays = sortedPlays.map(play => {
-      return play.map(card => `${card.value}${card.suit}`).join(',');
-    }).join(' | ');
-
-    console.log('Sorted plays (weakest to strongest):', formattedPlays);
-
-    return {
-      action: 'play',
-      cards: sortedPlays[0] // Choose the weakest valid play
-    };
-  }
-
-  return {
-    action: 'pass'
-  };
+export function calculateAIMove(aiHand, lastPlayedHand, gameState) {
+  return AIStrategy.decideMove(aiHand, lastPlayedHand, gameState);
 }
 
 export function calculatePossiblePlays(cards, lastPlayedHand) {
