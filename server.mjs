@@ -71,8 +71,8 @@ class Room {
 }
 
 function generateRandomUsername() {
-  const adjectives = ["Swift", "Brave", "Clever", "Witty", "Mighty", "Strong", "Thoughtful"];
-  const nouns = ["Lion", "Wolf", "Penguin", "Tiger", "Eagle", "Falcon", "Cheetah", "Elephant"];
+  const adjectives = ["Swift", "Brave", "Clever", "Witty", "Mighty", "Strong", "Musing"];
+  const nouns = ["Lion", "Wolf", "Hippo", "Tiger", "Eagle", "Falcon", "Cheetah", "Cat"];
   return adjectives[Math.floor(Math.random() * adjectives.length)] +
     nouns[Math.floor(Math.random() * nouns.length)] +
     Math.floor(Math.random() * 1000)
@@ -151,6 +151,37 @@ function processAITurn(room) {
   }, 1000); // 1 second delay for AI "thinking"
 }
 
+function addAIPlayer(roomName, socket, difficulty, broadcast) {
+  const room = rooms.get(roomName);
+  if (!room) return;
+
+  if (room.creatorID !== socket.id) {
+    socket.emit("gameError", { message: "Only the creatorID can add AI" });
+    return;
+  }
+
+  if (room.players.length >= 4) {
+    socket.emit("gameError", { message: "Room is full" });
+    return;
+  }
+
+  const aiPlayer = {
+    id: null,
+    name: "AI_" + generateRandomUsername(),
+    room: roomName,
+    difficulty: difficulty,
+    isAI: true
+  }
+
+  room.addPlayer(aiPlayer);
+  if (!broadcast) {
+    io.to(room.id).emit("roomUpdate", {
+      players: room.players.map(p => p.name),
+      creatorID: room.creatorID
+    });
+  }
+}
+
 io.on("connection", (socket) => {
   console.log("User connected: " + socket.id);
 
@@ -192,32 +223,60 @@ io.on("connection", (socket) => {
     broadcastRoomList();
   });
 
-  socket.on("addAI", ({ roomName }) => {
-    const room = rooms.get(roomName);
-    if (!room) return;
-
-    if (room.creatorID !== socket.id) {
-      socket.emit("gameError", { message: "Only the creatorID can add AI" });
-      return;
+  socket.on("startAIGame", ({ roomName, playerName, aiCount, difficulty }) => {
+    if (aiCount > 3) {
+      socket.emit("joinAIGameError", { message: "There can't be more than 4 players in a room!" });
     }
 
-    if (room.players.length >= 4) {
-      socket.emit("gameError", { message: "Room is full" });
-      return;
+    let room = rooms.get(roomName);
+
+    if (room) {
+      // This should never happen
+      socket.emit("joinAIGameError", { message: "Please try again (room name already taken)" });
+      return
     }
 
-    const aiPlayer = {
-      id: null,
-      name: "AI_" + generateRandomUsername(),
-      room: roomName,
-      isAI: true
-    }
+    room = new Room(roomName, socket.id);
+    rooms.set(roomName, room);
+    console.log("AI Game Room created: " + room.id + " Owner: " + room.creatorID);
 
-    room.addPlayer(aiPlayer);
+    player.name = playerName;
+    player.room = room.name;
+
+    room.addPlayer(player);
+
+    socket.join(room.id);
+
+    for (let i = 0; i < aiCount; i++) {
+      addAIPlayer(roomName, socket, difficulty, false);
+    }
+    
+    // We emit here instead of aiCount times in addAIPlayer
     io.to(room.id).emit("roomUpdate", {
       players: room.players.map(p => p.name),
       creatorID: room.creatorID
     });
+
+    room.status = "playing";
+
+    // Initialize game state
+    room.gameState = new GameState(room.players);
+
+    // Broadcast initial game state
+    broadcastGameState(room);
+
+    // Start AI turn if first player is AI
+    const firstPlayer = room.gameState.getCurrentPlayer();
+    if (firstPlayer.isAI) {
+      processAITurn(room);
+    }
+
+    io.to(room.id).emit("gameStarted");
+    broadcastRoomList();
+  });
+
+  socket.on("addAI", ({ roomName }) => {
+    addAIPlayer(roomName, socket, undefined, true);
   });
 
   socket.on("removePlayer", ({ roomName, playerName }) => {
@@ -438,7 +497,7 @@ io.on("connection", (socket) => {
   });
 });
 
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.status(200).send('OK');
 });
 
