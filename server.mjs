@@ -148,7 +148,7 @@ function processAITurn(room) {
         processAITurn(room);
       }
     }
-  }, 100); // 1 second delay for AI "thinking"
+  }, 1000); // 1 second delay for AI "thinking"
 }
 
 function addAIPlayer(roomName, socket, difficulty, broadcast) {
