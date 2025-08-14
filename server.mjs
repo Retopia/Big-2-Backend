@@ -148,7 +148,7 @@ function processAITurn(room) {
         processAITurn(room);
       }
     }
-  }, 1000); // 1 second delay for AI "thinking"
+  }, 100); // 1 second delay for AI "thinking"
 }
 
 function addAIPlayer(roomName, socket, difficulty, broadcast) {
@@ -173,6 +173,8 @@ function addAIPlayer(roomName, socket, difficulty, broadcast) {
     isAI: true
   }
 
+  console.log("Emitting Room Update", room.players.length)
+  console.log("Player IDs in room:", room.players.map(p => p.id));
   room.addPlayer(aiPlayer);
   if (!broadcast) {
     io.to(room.id).emit("roomUpdate", {
@@ -182,18 +184,60 @@ function addAIPlayer(roomName, socket, difficulty, broadcast) {
   }
 }
 
+const usernameToPlayer = new Map();
+
 io.on("connection", (socket) => {
   console.log("User connected: " + socket.id);
 
-  // Create a player objet when socket connects
-  const player = {
+  // Create a player object when socket connects
+  let player = {
     id: socket.id,
     name: generateRandomUsername(),
     room: null, // Will be assigned on room join
     isAI: false
   };
 
-  socket.emit("assignUsername", { username: player.name });
+  console.log("Current usernameToPlayer map:");
+  for (const [username, player] of usernameToPlayer.entries()) {
+    console.log(`- ${username}:`, player);
+  }
+
+  socket.on("joinOrReconnect", ({ username }) => {
+    const existingPlayer = usernameToPlayer.get(username);
+    if (existingPlayer) {
+      existingPlayer.id = socket.id;
+      // Rejoin room if you track it
+      if (existingPlayer.room) {
+        socket.join(existingPlayer.room);
+      }
+
+      player = existingPlayer
+      console.log(`${username} reconnected.`);
+      console.log(player)
+      console.log("Current usernameToPlayer map:");
+      for (const [username, player] of usernameToPlayer.entries()) {
+        console.log(`- ${username}:`, player);
+      }
+    } else {
+      // Treat as a new player if username doesn't exist
+      usernameToPlayer.set(player.name, player);
+      socket.emit("assignUsername", { username: player.name });
+      console.log(`Username not found. Assigned new: ${player.name}`);
+    }
+  });
+
+  socket.on("updateUsername", ({ username }) => {
+    if (username && username.trim()) {
+      player.name = username.trim();
+      console.log(`Updated username to: ${username}`);
+    }
+  });
+
+  socket.on("requestRandomUsername", () => {
+    console.log("Setting Random username", player.name)
+    usernameToPlayer.set(player.name, player);
+    socket.emit("assignUsername", { username: player.name });
+  });
 
   socket.on("requestRoomList", () => {
     broadcastRoomList();
@@ -250,7 +294,7 @@ io.on("connection", (socket) => {
     for (let i = 0; i < aiCount; i++) {
       addAIPlayer(roomName, socket, difficulty, false);
     }
-    
+
     // We emit here instead of aiCount times in addAIPlayer
     io.to(room.id).emit("roomUpdate", {
       players: room.players.map(p => p.name),
@@ -276,7 +320,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("addAI", ({ roomName }) => {
-    addAIPlayer(roomName, socket, undefined, true);
+    addAIPlayer(roomName, socket, undefined, false);
   });
 
   socket.on("removePlayer", ({ roomName, playerName }) => {
@@ -352,6 +396,11 @@ io.on("connection", (socket) => {
         winner: result.winner,
         scores: room.gameState.scores
       });
+
+      // Reset all player's room to null
+      for (let i = 0; i < room.players.length; i++) {
+        room.players[i].room = null;
+      }
 
       // Reset game state after a delay
       setTimeout(() => {
@@ -457,6 +506,16 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("User disconnected: " + socket.id);
+    console.log(`Current usernameToPlayer map size: ${usernameToPlayer.size}`);
+
+    // Remove from map
+    for (const [username, playerData] of usernameToPlayer.entries()) {
+      if (playerData.id === socket.id) {
+        console.log(`Removing ${username} from usernameToPlayer map`);
+        usernameToPlayer.delete(username);
+        break;
+      }
+    }
 
     const room = rooms.get(player.room);
     if (!room) return;
