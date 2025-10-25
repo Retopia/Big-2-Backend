@@ -12,7 +12,7 @@ import {
   groupCardsByValue,
   getAllFiveCardCombinations,
   calculateAllValidHands
-} from './CardGame.mjs'; // Adjust path as needed
+} from '../core/CardGame.mjs'; // Adjust path as needed
 
 // Mock cards
 const cards = {

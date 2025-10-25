@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "dev": "nodemon server/index.mjs"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
@@ -7,6 +10,6 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.10"
   }
 }
