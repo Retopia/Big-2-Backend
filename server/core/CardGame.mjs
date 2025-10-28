@@ -1,5 +1,3 @@
-import * as AIStrategy from './AIStrategy.mjs';
-
 // Get numerical value of a card for comparison (higher is better)
 export function getCardValue(card) {
   // Define value based on card value
@@ -310,10 +308,6 @@ export function sortPlaysByStrength(plays) {
     // Compare by the hand value
     return handA.value - handB.value; // Lower value first
   });
-}
-
-export function calculateAIMove(aiHand, lastPlayedHand, gameState) {
-  return AIStrategy.decideMove(aiHand, lastPlayedHand, gameState);
 }
 
 export function calculatePossiblePlays(cards, lastPlayedHand) {

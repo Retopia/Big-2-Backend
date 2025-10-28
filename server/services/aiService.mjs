@@ -1,6 +1,8 @@
 import { rooms } from "../state.mjs";
 import { broadcastGameState, broadcastGameEnd, broadcastRoomUpdate, broadcastRoomList } from "../utils/broadcast.mjs";
 import { generateRandomUsername } from "../utils/id.mjs";
+import * as StandardAIStrategy from '../core/StandardAIStrategy.mjs';
+import * as LLMStrategy from '../core/LLMStrategy.mjs';
 
 /**
  * Handles the AI's turn logic with a delay for realism.
@@ -70,4 +72,21 @@ export function addAIPlayer(io, socket, roomName, difficulty, suppressBroadcast 
   }
 
   console.log(`AI added to ${roomName}: ${aiPlayer.name}`);
+}
+
+/**
+ * Calculates the AI's move based on its hand, the last played hand, and the game state.
+ */
+export function calculateAIMove(aiHand, lastPlayedHand, gameState, aiType) {
+  console.log(`Calculating AI move for type: ${aiType}`);
+  
+  if (aiType === 'standard') {
+    return StandardAIStrategy.decideMove(aiHand, lastPlayedHand, gameState);
+  } else if (aiType === 'llm') {
+    return LLMStrategy.decideMove(aiHand, lastPlayedHand, gameState);
+  }
+  
+  // Default fallback to standard AI if type is unrecognized
+  console.warn(`Unknown AI type: ${aiType}, falling back to standard AI`);
+  return StandardAIStrategy.decideMove(aiHand, lastPlayedHand, gameState);
 }

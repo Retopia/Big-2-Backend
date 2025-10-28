@@ -1,4 +1,4 @@
-// AIStrategy.mjs - Encapsulates all AI decision-making logic
+// StandardAIStrategy.mjs - Encapsulates all AI decision-making logic
 import * as CardGame from './CardGame.mjs';
 
 // Main entry point for AI decision making

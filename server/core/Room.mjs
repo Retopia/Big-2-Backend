@@ -52,7 +52,7 @@ export class Room {
       id: this.id,
       name: this.name,
       status: this.status,
-      playerCount: this.players.length,
+      players: this.players,
       creatorID: this.creatorID,
     };
   }

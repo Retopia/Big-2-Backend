@@ -1,4 +1,5 @@
 import * as CardGame from "./CardGame.mjs";
+import * as aiService from "../services/aiService.mjs";
 
 export class GameState {
   constructor(players) {
@@ -239,7 +240,7 @@ export class GameState {
       round: this.round
     };
 
-    const moveResult = CardGame.calculateAIMove(hand, this.lastPlayedHand, gameStateInfo);
+    const moveResult = aiService.calculateAIMove(hand, this.lastPlayedHand, gameStateInfo, aiPlayer.difficulty);
 
     if (moveResult.action === 'play') {
       return this.playCards(aiPlayer.name, moveResult.cards);
