@@ -10,33 +10,37 @@ import * as LLMStrategy from '../core/LLMStrategy.mjs';
 export function processAITurn(io, room) {
   if (!room?.gameState) return;
 
-  setTimeout(() => {
+  setTimeout(async () => {
     const current = room.gameState.getCurrentPlayer();
     if (!current?.isAI) return;
 
-    const result = room.gameState.handleAITurn(current);
-    if (!result) return;
+    try {
+      const result = await room.gameState.handleAITurn(current);
+      if (!result) return;
 
-    // Game finished condition
-    if (result.gameStatus === "finished") {
-      broadcastGameEnd(io, room, result.winner, room.gameState.scores);
+      // Game finished condition
+      if (result.gameStatus === "finished") {
+        broadcastGameEnd(io, room, result.winner, room.gameState.scores);
 
-      setTimeout(() => {
-        room.status = "waiting";
-        room.gameState = null;
-        broadcastRoomUpdate(io, room);
-        broadcastRoomList(io, rooms);
-      }, 500);
+        setTimeout(() => {
+          room.status = "waiting";
+          room.gameState = null;
+          broadcastRoomUpdate(io, room);
+          broadcastRoomList(io, rooms);
+        }, 500);
 
-      return;
+        return;
+      }
+
+      // Regular broadcast
+      broadcastGameState(io, room);
+
+      // Continue AI chain if next player is AI
+      const next = room.gameState.getCurrentPlayer();
+      if (next?.isAI) processAITurn(io, room);
+    } catch (error) {
+      console.error('Failed to process AI turn:', error);
     }
-
-    // Regular broadcast
-    broadcastGameState(io, room);
-
-    // Continue AI chain if next player is AI
-    const next = room.gameState.getCurrentPlayer();
-    if (next?.isAI) processAITurn(io, room);
   }, 1000);
 }
 
@@ -77,16 +81,21 @@ export function addAIPlayer(io, socket, roomName, difficulty, suppressBroadcast 
 /**
  * Calculates the AI's move based on its hand, the last played hand, and the game state.
  */
-export function calculateAIMove(aiHand, lastPlayedHand, gameState, aiType) {
+export async function calculateAIMove(aiHand, lastPlayedHand, gameState, aiType) {
   console.log(`Calculating AI move for type: ${aiType}`);
-  
-  if (aiType === 'standard') {
+
+  try {
+    if (aiType === 'standard') {
+      return StandardAIStrategy.decideMove(aiHand, lastPlayedHand, gameState);
+    } else if (aiType === 'llm') {
+      return await LLMStrategy.decideMove(aiHand, lastPlayedHand, gameState);
+    }
+
+    // Default fallback to standard AI if type is unrecognized
+    console.warn(`Unknown AI type: ${aiType}, falling back to standard AI`);
     return StandardAIStrategy.decideMove(aiHand, lastPlayedHand, gameState);
-  } else if (aiType === 'llm') {
-    return LLMStrategy.decideMove(aiHand, lastPlayedHand, gameState);
+  } catch (error) {
+    console.error('Error calculating AI move:', error);
+    return StandardAIStrategy.decideMove(aiHand, lastPlayedHand, gameState);
   }
-  
-  // Default fallback to standard AI if type is unrecognized
-  console.warn(`Unknown AI type: ${aiType}, falling back to standard AI`);
-  return StandardAIStrategy.decideMove(aiHand, lastPlayedHand, gameState);
 }

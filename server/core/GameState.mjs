@@ -225,22 +225,24 @@ export class GameState {
     }
   }
 
-  handleAITurn(aiPlayer) {
+  async handleAITurn(aiPlayer) {
     console.log("AI Turn", aiPlayer);
     console.log("Passed players count", this.passedPlayers.length);
     const hand = this.playerHands[aiPlayer.name];
 
     const gameStateInfo = {
-      players: this.players.map(p => ({ 
-        name: p.name, 
+      players: this.players.map(p => ({
+        name: p.name,
         handSize: this.playerHands[p.name].length,
-        isAI: p.isAI 
+        isAI: p.isAI
       })),
       currentPlayerName: this.players[this.currentPlayerIndex].name,
-      round: this.round
+      round: this.round,
+      moveHistory: this.moveHistory,
+      lowestCardValue: this.lowestCardValue
     };
 
-    const moveResult = aiService.calculateAIMove(hand, this.lastPlayedHand, gameStateInfo, aiPlayer.difficulty);
+    const moveResult = await aiService.calculateAIMove(hand, this.lastPlayedHand, gameStateInfo, aiPlayer.difficulty);
 
     if (moveResult.action === 'play') {
       return this.playCards(aiPlayer.name, moveResult.cards);
