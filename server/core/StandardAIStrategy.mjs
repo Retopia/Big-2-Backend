@@ -3,30 +3,20 @@ import * as CardGame from './CardGame.mjs';
 
 // Main entry point for AI decision making
 export function decideMove(aiHand, lastPlayedHand, gameState = null) {
-  console.log("\n=== AI DECISION MAKING PROCESS ===");
-  console.log(`AI hand size: ${aiHand.length} cards`);
-  console.log(`AI hand: ${formatCards(aiHand)}`);
-
-  if (lastPlayedHand && lastPlayedHand.length > 0) {
-    console.log(`Last played hand: ${formatCards(lastPlayedHand)}`);
-  } else {
-    console.log("No cards on table - this is a fresh play");
-  }
-
   // Get all valid moves the AI can play
-  let possiblePlays = CardGame.calculatePossiblePlays(aiHand, lastPlayedHand);
+  let possiblePlays = CardGame.calculatePossiblePlays(
+    aiHand, 
+    lastPlayedHand, 
+    gameState?.moveHistory || [], 
+    gameState?.lowestCardValue
+  );
   possiblePlays = CardGame.sortPlaysByStrength(possiblePlays)
 
   // If no valid plays, AI must pass
   if (possiblePlays.length === 0) {
-    console.log("❌ NO VALID PLAYS AVAILABLE - AI MUST PASS");
+    console.log("Standard AI: No valid plays - passing");
     return { action: 'pass' };
   }
-
-  console.log(`AI has ${possiblePlays.length} possible plays:`);
-  possiblePlays.forEach((play, index) => {
-    console.log(`  ${index + 1}. ${formatCards(play)} [${getHandTypeString(play)}]`);
-  });
 
   // Gather game information for better decision making
   const opponentInfo = extractOpponentInfo(gameState);
@@ -38,43 +28,23 @@ export function decideMove(aiHand, lastPlayedHand, gameState = null) {
     round: gameState?.round || 1
   };
 
-  console.log(`\nGame context:`);
-  console.log(`- Round: ${gameInfo.round}`);
-  console.log(`- First play: ${gameInfo.isFirstPlay}`);
-  console.log(`- Final cards: ${gameInfo.isFinalCards}`);
-
-  if (opponentInfo) {
-    console.log("\nOpponent information:");
-    Object.entries(opponentInfo).forEach(([name, info]) => {
-      console.log(`- ${name}: ${info.handSize} cards${info.isCloseToWinning ? ' (CLOSE TO WINNING!)' : ''}`);
-    });
-  }
-
   // Choose play based on different strategies depending on game state
   let selectedPlay;
 
   // Strategy for opening play (no cards on table)
   if (gameInfo.isFirstPlay) {
-    console.log("\n🎮 USING OPENING PLAY STRATEGY");
-    selectedPlay = selectOpeningPlay(possiblePlays, aiHand);
+    selectedPlay = selectOpeningPlay(possiblePlays, aiHand, gameInfo);
   }
   // Strategy when AI is close to winning
   else if (gameInfo.isFinalCards) {
-    console.log("\n🎮 USING ENDGAME STRATEGY (FEW CARDS LEFT)");
     selectedPlay = selectEndgamePlay(possiblePlays, aiHand);
   }
   // Strategy for mid-game
   else {
-    console.log("\n🎮 USING MID-GAME STRATEGY");
     selectedPlay = selectMidgamePlay(possiblePlays, aiHand, lastPlayedHand, gameInfo);
   }
 
-  const selectedIndex = possiblePlays.findIndex(play =>
-    arraysEqual(play, selectedPlay)
-  );
-
-  console.log(`\n✅ FINAL DECISION: Play #${selectedIndex + 1}: ${formatCards(selectedPlay)} [${getHandTypeString(selectedPlay)}]`);
-  console.log("=== END OF AI DECISION PROCESS ===\n");
+  console.log(`Standard AI: Play ${formatCards(selectedPlay)} [${getHandTypeString(selectedPlay)}]`);
 
   return {
     action: 'play',
@@ -83,254 +53,198 @@ export function decideMove(aiHand, lastPlayedHand, gameState = null) {
 }
 
 // Strategy for opening play (when no cards on table)
-function selectOpeningPlay(possiblePlays, aiHand) {
-  console.log("Analyzing opening play options...");
-
+function selectOpeningPlay(possiblePlays, aiHand, gameInfo = {}) {
   // Group plays by number of cards
   const playsBySize = groupPlaysBySize(possiblePlays);
-  console.log("Grouping plays by size:", Object.keys(playsBySize).map(size => `${size} cards: ${playsBySize[size]?.length || 0} plays`).join(", "));
 
-  // Singles strategy: Play low singles but save very high value cards
-  if (playsBySize[1] && playsBySize[1].length > 0) {
-    console.log("Considering single card plays...");
-    const singles = playsBySize[1];
-    const lowestSingle = singles[0]; // Already sorted by CardGame.sortPlaysByStrength
+  // DEFENSIVE STRATEGY: If opponent is close to winning, play defensively
+  const opponentCloseToWinning = gameInfo.opponentInfo && Object.values(gameInfo.opponentInfo).some(
+    player => player.handSize <= 2 && player.handSize > 0
+  );
 
-    // If our lowest card is a 2 or Ace and we have alternatives, save it
-    const cardValue = CardGame.getCardValue(lowestSingle[0]);
-    console.log(`Lowest single: ${formatCards([lowestSingle[0]])} (value: ${cardValue})`);
-
-    if ((cardValue >= 14) && singles.length > 1) { // 14 is Ace, 15 is 2
-      console.log("  ↪ This is a high-value card (A/2), saving it and playing second lowest single");
-      return singles[1]; // Play second lowest single
+  if (opponentCloseToWinning) {
+    // Priority: 5-card hands > high pairs > high singles
+    if (playsBySize[5] && playsBySize[5].length > 0) {
+      return playsBySize[5][0];
     }
+    
+    if (playsBySize[2] && playsBySize[2].length > 0) {
+      const highPairIndex = Math.max(0, playsBySize[2].length - 1);
+      return playsBySize[2][highPairIndex];
+    }
+    
+    if (playsBySize[1] && playsBySize[1].length > 0) {
+      const singles = playsBySize[1];
+      const highSingleIndex = Math.max(0, Math.floor(singles.length * 0.7));
+      return singles[highSingleIndex];
+    }
+  }
 
-    console.log("  ↪ Playing lowest single");
+  // Normal strategy: Prioritize getting rid of low cards while preserving high value cards
+  
+  // For singles: Play lowest but save Aces and 2s if possible
+  if (playsBySize[1] && playsBySize[1].length > 0) {
+    const singles = playsBySize[1];
+    const lowestSingle = singles[0];
+    const cardValue = CardGame.getCardValue(lowestSingle[0]);
+
+    // Save high value cards if we have alternatives
+    if (cardValue >= 14 && singles.length > 1) {
+      return singles[1]; // Play second lowest
+    }
     return lowestSingle;
   }
 
-  // If we have pairs, prefer playing lower pairs first
+  // For pairs: Play lowest pair
   if (playsBySize[2] && playsBySize[2].length > 0) {
-    console.log("Playing lowest pair");
-    return playsBySize[2][0]; // Lowest pair
+    return playsBySize[2][0];
   }
 
-  // If we have triples, consider playing them early
+  // For triples: Play lowest triple
   if (playsBySize[3] && playsBySize[3].length > 0) {
-    console.log("Playing lowest triple");
-    return playsBySize[3][0]; // Lowest triple
+    return playsBySize[3][0];
   }
 
-  // For 5-card combinations, play the lowest straight if available
+  // For 5-card hands: Prefer straights over other combinations
   if (playsBySize[5] && playsBySize[5].length > 0) {
-    console.log("Analyzing 5-card combinations...");
     const fiveCardHands = playsBySize[5].map(play => {
       const handResult = CardGame.validateHand(play);
       return { play, type: handResult.type, value: handResult.value };
     });
 
-    // Look for the lowest straight
     const straights = fiveCardHands.filter(hand => hand.type === 'straight');
     if (straights.length > 0) {
-      console.log("  ↪ Found a straight, playing lowest straight");
       return straights[0].play;
     }
-
-    // If no straight, play the lowest 5-card hand
-    console.log("  ↪ No straight found, playing lowest 5-card hand");
     return playsBySize[5][0];
   }
 
-  // Default to the lowest possible play
-  console.log("No special case, defaulting to lowest valid play");
+  // Default to lowest possible play
   return possiblePlays[0];
 }
 
 // Strategy for mid-game plays
 function selectMidgamePlay(possiblePlays, aiHand, lastPlayedHand, gameInfo) {
-  console.log("Analyzing mid-game options...");
-
-  // Group plays by number of cards
   const playsBySize = groupPlaysBySize(possiblePlays);
   const playHandSize = lastPlayedHand.length;
-
-  // Get hand distribution info
   const handDistribution = analyzeHandDistribution(aiHand);
-  console.log(`Hand distribution: ${handDistribution.singletons.length} singles, ${handDistribution.pairs.length} pairs, ${handDistribution.triples.length} triples, ${handDistribution.quads.length} quads`);
-
-  // Get information about the last played hand
-  const lastHandResult = CardGame.validateHand(lastPlayedHand);
-  const isHighLastPlay = isHighValuePlay(lastHandResult);
-  console.log(`Last play is high-value (A/2): ${isHighLastPlay}`);
-
-  // Consider opponent hand sizes when making decisions
-  const opponentInfo = gameInfo.opponentInfo;
-
-  // Strategy depends on player hand size and opponents' status
+  
   // Check if any opponent is close to winning
-  const opponentCloseToWinning = opponentInfo && Object.values(opponentInfo).some(
+  const opponentCloseToWinning = gameInfo.opponentInfo && Object.values(gameInfo.opponentInfo).some(
     player => player.handSize <= 3 && player.handSize > 0
   );
 
-  if (opponentCloseToWinning) {
-    console.log("⚠️ An opponent is close to winning - considering defensive play");
-  }
-
-  // Counter strategy: If opponent played high value card (Ace, 2), 
-  // try to play the minimum required to win
+  // Counter high-value plays efficiently
+  const lastHandResult = CardGame.validateHand(lastPlayedHand);
+  const isHighLastPlay = isHighValuePlay(lastHandResult);
+  
   if (isHighLastPlay && playsBySize[playHandSize] && playsBySize[playHandSize].length > 0) {
-    // Play the lowest card that can beat the high play
-    console.log("Opponent played high value card, using counter strategy (play minimum required)");
-    return playsBySize[playHandSize][0];
+    return playsBySize[playHandSize][0]; // Play minimum to beat high card
   }
 
+  // Early game (>10 cards): Focus on clearing low cards
   if (gameInfo.handSize > 10) {
-    // Early game: Play lowest cards first to get rid of weak cards
-    console.log("Early game strategy: play lowest cards to get rid of weak cards");
-    return possiblePlays[0]; // Lowest valid play
+    return possiblePlays[0];
   }
+  
+  // Mid game (6-10 cards): Strategic play based on hand composition
   else if (gameInfo.handSize > 5) {
-    // Mid game: Be more strategic based on hand distribution
-    console.log("Mid-game strategy: be more strategic with card selection");
-
-    // If opponent is close to winning, play stronger cards to block them
+    // Defensive play if opponent close to winning
     if (opponentCloseToWinning && playHandSize === 1 && playsBySize[1] && playsBySize[1].length > 1) {
-      // Play a higher single than we normally would to block opponent
       const highIndex = Math.min(Math.floor(playsBySize[1].length * 0.7), playsBySize[1].length - 1);
-      console.log(`Playing stronger single (ranked ${highIndex + 1}/${playsBySize[1].length}) to block opponent`);
       return playsBySize[1][highIndex];
     }
 
-    // If we have many singles, prioritize getting rid of them
+    // Prioritize clearing excess singles
     if (handDistribution.singletons.length > 3 && playsBySize[1] && playsBySize[1].length > 0) {
-      // Play lowest single
-      console.log("Too many singleton cards, prioritizing getting rid of lowest single");
       return playsBySize[1][0];
     }
 
-    // If we have many pairs, prioritize getting rid of weaker ones
+    // Clear pairs if we have many
     if (handDistribution.pairs.length > 2 && playsBySize[2] && playsBySize[2].length > 0) {
-      // Play lowest pair
-      console.log("Multiple pairs in hand, prioritizing getting rid of lowest pair");
       return playsBySize[2][0];
     }
 
-    // If we have trips, consider playing them
+    // Play triples to reduce hand size
     if (handDistribution.triples.length > 0 && playsBySize[3] && playsBySize[3].length > 0) {
-      // Play lowest triple
-      console.log("Have triples, playing lowest triple");
       return playsBySize[3][0];
     }
 
-    // Middle range play: sometimes play middle strength to avoid using all strong cards
-    if (possiblePlays.length > 2) {
+    // Add some unpredictability in later rounds
+    if (possiblePlays.length > 2 && gameInfo.round > 3 && Math.random() < 0.3) {
       const midIndex = Math.floor(possiblePlays.length / 2);
-
-      const randomThreshold = gameInfo.round > 3 ? 0.4 : 0.25; // Increase randomness in later rounds
-      if (Math.random() < randomThreshold) {
-        console.log(`Using mixed strategy (30% chance): playing middle-strength card (ranked ${midIndex + 1}/${possiblePlays.length})`);
-        return possiblePlays[midIndex];
-      }
+      return possiblePlays[midIndex];
     }
 
-    // Default to lowest play
-    console.log("No special case, defaulting to lowest valid play");
     return possiblePlays[0];
   }
+  
+  // Approaching endgame (≤5 cards): Aggressive play
   else {
-    // Approaching endgame: Be more aggressive to get rid of cards
-    console.log("Approaching endgame strategy: be more aggressive to empty hand");
-
-    // If we're in a later round and opponent is close to winning,
-    // play more aggressively with stronger cards
+    // Block opponents aggressively in late rounds
     if (gameInfo.round > 3 && opponentCloseToWinning) {
-      // Try to play cards that will definitely win this round
-      console.log("Late round + opponent close to winning: looking for a strong play to block");
       const strongPlay = findStrongPlayToBlock(possiblePlays, lastPlayedHand);
       if (strongPlay) {
-        console.log("Found stronger play to block opponent from winning");
         return strongPlay;
       }
     }
 
-    // Look for plays that would leave us with good follow-up options
-    console.log("Evaluating plays based on what cards would remain...");
-
-    // Try to avoid creating "dead" cards (cards that will be difficult to play)
+    // Optimize for fewer dead cards
     const playsWithScores = possiblePlays.map(play => {
       const remainingCards = removeCardsFromHand(aiHand, play);
       const deadCardScore = evaluateDeadCards(remainingCards);
-      console.log(`  Play ${formatCards(play)}: dead card score = ${deadCardScore}`);
       return { play, score: deadCardScore };
     });
 
-    // Sort by score (lower is better - fewer dead cards)
     playsWithScores.sort((a, b) => a.score - b.score);
 
-    // 70% chance to play the best option, 30% chance to play the second best if available
+    // 70% best option, 30% second best for unpredictability
     if (playsWithScores.length > 1 && Math.random() < 0.3) {
-      console.log("Using mixed strategy (30% chance): playing second-best option to avoid predictability");
       return playsWithScores[1].play;
     }
 
-    console.log("Playing option with fewest dead cards afterward");
     return playsWithScores[0].play;
   }
 }
 
 // Strategy for endgame (AI has 5 or fewer cards left)
 function selectEndgamePlay(possiblePlays, aiHand) {
-  console.log("Analyzing endgame options (5 or fewer cards)...");
-
-  // Group plays by number of cards
   const playsBySize = groupPlaysBySize(possiblePlays);
 
-  // Highly prefer plays that will use multiple cards
+  // Prioritize multi-card plays to empty hand faster
   const multiCardPlays = possiblePlays.filter(play => play.length > 1);
 
   if (multiCardPlays.length > 0) {
-    // Sort multi-card plays by number of cards (descending)
+    // Sort by number of cards (largest first)
     multiCardPlays.sort((a, b) => b.length - a.length);
-
-    // Play the largest combination to get rid of more cards
-    console.log(`Endgame strategy: playing largest combination (${multiCardPlays[0].length} cards) to empty hand faster`);
     return multiCardPlays[0];
   }
 
-  // If we have to play singles, prioritize getting rid of "dead" singles
+  // For singles: Prioritize low-value cards, save high cards for later
   if (playsBySize[1] && playsBySize[1].length > 0) {
-    // Analyze the singletons to find potentially "dead" cards
     const singlePlays = playsBySize[1];
-    console.log("Only have single cards to play, evaluating which to play first...");
 
-    // Evaluate each single card
+    // Score singles based on strategic value
     const scoredSingles = singlePlays.map(play => {
       const cardValue = CardGame.getCardValue(play[0]);
       let score = 0;
 
-      // Penalize high value cards less (we want to save them)
-      if (cardValue >= 14) { // Ace or 2
+      if (cardValue >= 14) { // Ace or 2 - save these
         score += 10;
-        console.log(`  ${formatCards(play)}: score +10 (high value card)`);
-      } else if (cardValue >= 10) { // Face cards
+      } else if (cardValue >= 10) { // Face cards - moderate priority to save
         score += 5;
-        console.log(`  ${formatCards(play)}: score +5 (face card)`);
-      } else {
-        console.log(`  ${formatCards(play)}: score +0 (low value card)`);
       }
+      // Low cards get score 0 - prioritize playing these
 
       return { play, score };
     });
 
-    // Sort by score (lower is better for cards we want to get rid of)
+    // Sort by score (lowest first = cards we want to play first)
     scoredSingles.sort((a, b) => a.score - b.score);
-
-    console.log(`Prioritizing playing ${formatCards(scoredSingles[0].play)} (lowest score: ${scoredSingles[0].score})`);
     return scoredSingles[0].play;
   }
 
-  // Default to the lowest possible play
-  console.log("No special cases, defaulting to lowest valid play");
+  // Default fallback
   return possiblePlays[0];
 }
 
@@ -398,21 +312,14 @@ function evaluateDeadCards(remainingCards) {
   const distribution = analyzeHandDistribution(remainingCards);
   let deadCardScore = 0;
 
-  // Singleton non-high cards are "dead" cards
+  // Count low singleton cards as potential dead cards
   distribution.singletons.forEach(card => {
     const value = CardGame.getCardValue(card);
-    if (value < 12) { // Not a face card, Ace, or 2
-      deadCardScore += 1;
-    }
+    if (value < 12) deadCardScore += 1;
   });
 
-  // Incomplete high card combinations might be difficult to play
-  const highCards = remainingCards.filter(card => {
-    const value = CardGame.getCardValue(card);
-    return value >= 14; // Ace or 2
-  });
-
-  // If we have high cards but no combinations, they might be hard to play
+  // Penalize isolated high cards if no pairs/triples exist
+  const highCards = remainingCards.filter(card => CardGame.getCardValue(card) >= 14);
   if (highCards.length > 0 && distribution.pairs.length === 0 && distribution.triples.length === 0) {
     deadCardScore += highCards.length * 0.5;
   }
@@ -422,39 +329,34 @@ function evaluateDeadCards(remainingCards) {
 
 // Extract information about opponents from the game state
 function extractOpponentInfo(gameState) {
-  if (!gameState || !gameState.players) {
-    return null;
-  }
+  if (!gameState?.players) return null;
 
   const opponentInfo = {};
-
+  
   gameState.players.forEach(player => {
-    // Skip the AI player itself
-    if (!player.isAI) {
+    // Include all players (both human and AI opponents)
+    if (player.name !== gameState.currentPlayerName) {
+      const handSize = player.handSize || 0;
       opponentInfo[player.name] = {
-        handSize: player.handSize || 0,
-        isCloseToWinning: (player.handSize || 0) <= 3 && (player.handSize || 0) > 0
+        handSize,
+        isCloseToWinning: handSize <= 3 && handSize > 0
       };
     }
   });
 
-  return opponentInfo;
+  return Object.keys(opponentInfo).length > 0 ? opponentInfo : null;
 }
 
 // Find a stronger play to block opponents who are close to winning
 function findStrongPlayToBlock(possiblePlays, lastPlayedHand) {
   if (possiblePlays.length <= 1) return null;
 
-  // Get stronger plays - look at the top 30% of our options
+  // Look at the stronger 30% of available plays
   const strongIndex = Math.max(Math.floor(possiblePlays.length * 0.7), 1);
   const strongPlays = possiblePlays.slice(strongIndex);
 
-  if (strongPlays.length > 0) {
-    // Return the weakest of our strong plays
-    return strongPlays[0];
-  }
-
-  return null;
+  // Return the weakest of the strong plays (most conservative blocking move)
+  return strongPlays.length > 0 ? strongPlays[0] : null;
 }
 
 // Check if a play is a high-value play (contains Aces or 2s)

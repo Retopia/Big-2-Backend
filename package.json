@@ -5,6 +5,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
+    "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "http": "^0.0.1-security",
     "socket.io": "^4.8.1"

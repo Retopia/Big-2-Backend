@@ -310,10 +310,19 @@ export function sortPlaysByStrength(plays) {
   });
 }
 
-export function calculatePossiblePlays(cards, lastPlayedHand) {
+export function calculatePossiblePlays(cards, lastPlayedHand, moveHistory = null, lowestCardValue = null) {
   // If no last played hand, any valid hand can be played
   if (!lastPlayedHand || lastPlayedHand.length === 0) {
-    return calculateAllValidHands(cards);
+    const allHands = calculateAllValidHands(cards);
+    
+    // If this is the very first move of the game, filter for hands containing the lowest card
+    if (moveHistory !== null && moveHistory.length === 0 && lowestCardValue !== null) {
+      return allHands.filter(hand => {
+        return hand.some(card => getCardValue(card) === lowestCardValue);
+      });
+    }
+    
+    return allHands;
   }
 
   // Validate the last played hand to get its type and value

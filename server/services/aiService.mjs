@@ -5,15 +5,18 @@ import * as StandardAIStrategy from '../core/StandardAIStrategy.mjs';
 import * as LLMStrategy from '../core/LLMStrategy.mjs';
 
 /**
- * Handles the AI's turn logic with a delay for realism.
+ * Handles the AI's turn logic with a delay for realism (standard AI only).
  */
 export function processAITurn(io, room) {
   if (!room?.gameState) return;
 
-  setTimeout(async () => {
-    const current = room.gameState.getCurrentPlayer();
-    if (!current?.isAI) return;
+  const current = room.gameState.getCurrentPlayer();
+  if (!current?.isAI) return;
 
+  // Add delay only for standard AI (LLM already has natural delay from API call)
+  const delay = current.difficulty === 'standard' ? 1000 : 0;
+  
+  setTimeout(async () => {
     try {
       const result = await room.gameState.handleAITurn(current);
       if (!result) return;
@@ -41,7 +44,7 @@ export function processAITurn(io, room) {
     } catch (error) {
       console.error('Failed to process AI turn:', error);
     }
-  }, 1000);
+  }, delay);
 }
 
 /**
