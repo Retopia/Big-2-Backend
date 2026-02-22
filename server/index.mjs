@@ -22,12 +22,17 @@ const allowedOrigins = [
   "http://localhost:4173",
 ];
 
+const corsOptions = {
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
 app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  })
+  cors(corsOptions)
 );
+app.options("*", cors(corsOptions));
 app.use(express.json());
 
 const io = new Server(server, {

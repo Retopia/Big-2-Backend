@@ -71,20 +71,23 @@ function createSessionToken() {
 }
 
 function setAdminCookie(req, res, token, expiresAt) {
+  const secure = isSecureRequest(req);
   res.cookie(ADMIN_COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: "strict",
-    secure: isSecureRequest(req),
+    // Cross-site admin panel requests (www.big2.live -> api.big2...) require SameSite=None.
+    sameSite: secure ? "none" : "lax",
+    secure,
     path: "/",
     expires: new Date(expiresAt),
   });
 }
 
 function clearAdminCookie(req, res) {
+  const secure = isSecureRequest(req);
   res.clearCookie(ADMIN_COOKIE_NAME, {
     httpOnly: true,
-    sameSite: "strict",
-    secure: isSecureRequest(req),
+    sameSite: secure ? "none" : "lax",
+    secure,
     path: "/",
   });
 }
