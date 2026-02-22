@@ -3,6 +3,15 @@ import * as aiService from "../services/aiService.mjs";
 
 export class GameState {
   constructor(players) {
+    if (!Array.isArray(players) || players.length < 2 || players.length > 4) {
+      throw new Error("Game requires 2 to 4 players.");
+    }
+
+    const uniquePlayerNames = new Set(players.map((player) => player.name));
+    if (uniquePlayerNames.size !== players.length) {
+      throw new Error("Player names must be unique.");
+    }
+
     this.players = players;
     this.currentPlayerIndex = 0;
     this.lastPlayedHand = []; // The last played hand on the table

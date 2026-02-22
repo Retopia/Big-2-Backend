@@ -1,6 +1,7 @@
 import { rooms } from "../state.mjs";
 import { broadcastGameState, broadcastGameEnd, broadcastRoomUpdate, broadcastRoomList } from "../utils/broadcast.mjs";
 import { generateRandomUsername } from "../utils/id.mjs";
+import { ensureUniqueName, PLAYER_NAME_MAX_LENGTH } from "../utils/nameValidation.mjs";
 import * as StandardAIStrategy from '../core/StandardAIStrategy.mjs';
 import * as LLMStrategy from '../core/LLMStrategy.mjs';
 
@@ -52,10 +53,18 @@ export function processAITurn(io, room) {
  */
 export function addAIPlayer(io, socket, roomName, difficulty, suppressBroadcast = false) {
   const room = rooms.get(roomName);
-  if (!room) return;
+  if (!room) {
+    socket.emit("gameError", { message: "Room not found." });
+    return;
+  }
 
   if (room.creatorID !== socket.id) {
     socket.emit("gameError", { message: "Only the creator can add AI players." });
+    return;
+  }
+
+  if (room.status !== "waiting") {
+    socket.emit("gameError", { message: "Cannot add AI after the game has started." });
     return;
   }
 
@@ -64,18 +73,30 @@ export function addAIPlayer(io, socket, roomName, difficulty, suppressBroadcast 
     return;
   }
 
+  const baseName = "AI_" + generateRandomUsername();
+  const aiName = ensureUniqueName(
+    baseName,
+    (candidate) => room.players.some((player) => player.name === candidate),
+    PLAYER_NAME_MAX_LENGTH
+  );
+
   const aiPlayer = {
     id: null,
-    name: "AI_" + generateRandomUsername(),
+    name: aiName,
     room: roomName,
     difficulty,
     isAI: true,
   };
 
-  room.addPlayer(aiPlayer);
+  const addResult = room.addPlayer(aiPlayer);
+  if (!addResult.success) {
+    socket.emit("gameError", { message: addResult.message });
+    return;
+  }
 
   if (!suppressBroadcast) {
     broadcastRoomUpdate(io, room);
+    broadcastRoomList(io, rooms);
   }
 
   console.log(`AI added to ${roomName}: ${aiPlayer.name}`);

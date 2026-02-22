@@ -1,5 +1,6 @@
 import * as CardGame from './CardGame.mjs';
 import * as StandardAIStrategy from './StandardAIStrategy.mjs';
+import { getActiveLLMModel } from '../state.mjs';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_MODEL = 'x-ai/grok-4-fast';
@@ -58,7 +59,7 @@ export async function decideMove(aiHand, lastPlayedHand, gameState = {}) {
     return await ensureMinimumDelay(startTime, StandardAIStrategy.decideMove(aiHand, lastPlayedHand, gameState));
   }
 
-  const model = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+  const model = getActiveLLMModel() || DEFAULT_MODEL;
 
   if (typeof fetch !== 'function') {
     console.warn('Fetch not available, falling back to standard AI');

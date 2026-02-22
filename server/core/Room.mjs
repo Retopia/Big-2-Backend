@@ -12,7 +12,24 @@ export class Room {
 
   /** Add a player object */
   addPlayer(player) {
+    if (!player?.name) {
+      return { success: false, message: "Invalid player." };
+    }
+
+    if (this.players.length >= 4) {
+      return { success: false, message: "Room is full." };
+    }
+
+    if (player.id && this.players.some((p) => p.id && p.id === player.id)) {
+      return { success: false, message: "Player already in room." };
+    }
+
+    if (this.players.some((p) => p.name === player.name)) {
+      return { success: false, message: "Username is already taken in this room." };
+    }
+
     this.players.push(player);
+    return { success: true };
   }
 
   /** Remove player by id */

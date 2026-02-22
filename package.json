@@ -1,8 +1,10 @@
 {
   "scripts": {
-    "dev": "nodemon server/index.mjs"
+    "dev": "nodemon server/index.mjs",
+    "test:ai": "node server/tests/standardAIStrategy.test.mjs"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^17.2.3",
