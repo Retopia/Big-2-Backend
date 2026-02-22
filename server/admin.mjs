@@ -1,7 +1,6 @@
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import {
-  adminSessions,
   announcementState,
   getActiveLLMModel,
   getDefaultLLMModel,
@@ -12,9 +11,8 @@ import {
 import { broadcastRoomList } from "./utils/broadcast.mjs";
 import { validateRoomName } from "./utils/nameValidation.mjs";
 
-const ADMIN_COOKIE_NAME = "big2_admin_session";
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
-const SESSION_TOUCH_WINDOW_MS = 60 * 1000;
+const ADMIN_AUTH_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
+const ADMIN_AUTH_TOKEN_VERSION = 1;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 20;
 const ANNOUNCEMENT_MAX_LENGTH = 280;
@@ -32,22 +30,6 @@ const ALLOWED_ANNOUNCEMENT_TYPES = new Set([
   "error",
 ]);
 
-function parseCookies(cookieHeader) {
-  if (!cookieHeader) return {};
-
-  return cookieHeader.split(";").reduce((acc, part) => {
-    const [name, ...rest] = part.trim().split("=");
-    if (!name) return acc;
-    const rawValue = rest.join("=");
-    try {
-      acc[name] = decodeURIComponent(rawValue);
-    } catch {
-      acc[name] = rawValue;
-    }
-    return acc;
-  }, {});
-}
-
 function getClientIp(req) {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.length > 0) {
@@ -56,72 +38,135 @@ function getClientIp(req) {
   return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
-function isSecureRequest(req) {
-  const host = req.headers.host || "";
-  if (host.includes("localhost") || host.includes("127.0.0.1")) {
-    return false;
+function base64UrlEncode(input) {
+  return Buffer.from(input, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function base64UrlDecode(input) {
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const paddingLength = (4 - (normalized.length % 4)) % 4;
+  const padded = normalized + "=".repeat(paddingLength);
+  return Buffer.from(padded, "base64").toString("utf8");
+}
+
+function getAdminAuthSecret() {
+  const configuredSecret = process.env.ADMIN_AUTH_SECRET;
+  if (typeof configuredSecret === "string" && configuredSecret.trim()) {
+    return configuredSecret.trim();
   }
 
-  if (req.secure) return true;
-  return req.headers["x-forwarded-proto"] === "https";
+  if (process.env.ADMIN_PASSWORD_HASH) {
+    return process.env.ADMIN_PASSWORD_HASH;
+  }
+
+  if (process.env.ADMIN_PASSWORD) {
+    return process.env.ADMIN_PASSWORD;
+  }
+
+  return null;
 }
 
-function createSessionToken() {
-  return crypto.randomBytes(32).toString("hex");
+function signTokenPayload(payloadEncoded, secret) {
+  return crypto
+    .createHmac("sha256", secret)
+    .update(payloadEncoded)
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
-function setAdminCookie(req, res, token, expiresAt) {
-  const secure = isSecureRequest(req);
-  res.cookie(ADMIN_COOKIE_NAME, token, {
-    httpOnly: true,
-    // Cross-site admin panel requests (www.big2.live -> api.big2...) require SameSite=None.
-    sameSite: secure ? "none" : "lax",
-    secure,
-    path: "/",
-    expires: new Date(expiresAt),
-  });
+function createAdminToken(expiresAt) {
+  const secret = getAdminAuthSecret();
+  if (!secret) return null;
+
+  const payload = {
+    v: ADMIN_AUTH_TOKEN_VERSION,
+    iat: Date.now(),
+    exp: expiresAt,
+  };
+
+  const payloadEncoded = base64UrlEncode(JSON.stringify(payload));
+  const signature = signTokenPayload(payloadEncoded, secret);
+  return `${payloadEncoded}.${signature}`;
 }
 
-function clearAdminCookie(req, res) {
-  const secure = isSecureRequest(req);
-  res.clearCookie(ADMIN_COOKIE_NAME, {
-    httpOnly: true,
-    sameSite: secure ? "none" : "lax",
-    secure,
-    path: "/",
-  });
+function secureStringEquals(left, right) {
+  const leftBuffer = Buffer.from(left, "utf8");
+  const rightBuffer = Buffer.from(right, "utf8");
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-function getValidSession(req) {
-  const cookies = parseCookies(req.headers.cookie);
-  const token = cookies[ADMIN_COOKIE_NAME];
-  if (!token) return null;
+function verifyAdminToken(token) {
+  if (typeof token !== "string" || !token) return null;
+  const secret = getAdminAuthSecret();
+  if (!secret) return null;
 
-  const session = adminSessions.get(token);
-  if (!session) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [payloadEncoded, signature] = parts;
+  if (!payloadEncoded || !signature) return null;
 
-  const currentTime = Date.now();
-  if (session.expiresAt <= currentTime) {
-    adminSessions.delete(token);
+  const expectedSignature = signTokenPayload(payloadEncoded, secret);
+  if (!secureStringEquals(signature, expectedSignature)) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlDecode(payloadEncoded));
+  } catch {
     return null;
   }
 
-  session.lastSeenAt = currentTime;
-  if (session.expiresAt - currentTime < SESSION_TOUCH_WINDOW_MS) {
-    session.expiresAt = currentTime + SESSION_TTL_MS;
+  if (
+    payload?.v !== ADMIN_AUTH_TOKEN_VERSION ||
+    !Number.isInteger(payload?.exp) ||
+    payload.exp <= Date.now()
+  ) {
+    return null;
   }
 
-  return { token, session };
+  return payload;
 }
 
-function requireAdminSession(req, res, next) {
-  const activeSession = getValidSession(req);
-  if (!activeSession) {
+function getBearerToken(req) {
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader !== "string") return null;
+
+  const [scheme, ...rest] = authHeader.trim().split(/\s+/);
+  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
+
+  const token = rest.join(" ").trim();
+  return token || null;
+}
+
+function getValidAuth(req) {
+  const token = getBearerToken(req);
+  if (!token) return null;
+
+  const payload = verifyAdminToken(token);
+  if (!payload) return null;
+
+  return {
+    token,
+    expiresAt: payload.exp,
+  };
+}
+
+function requireAdminAuth(req, res, next) {
+  const auth = getValidAuth(req);
+  if (!auth) {
     res.status(401).json({ message: "Unauthorized." });
     return;
   }
 
-  req.adminSession = activeSession;
+  req.adminAuth = auth;
   next();
 }
 
@@ -279,17 +324,15 @@ function getPlayersSnapshot(io) {
 
 export default function registerAdminRoutes(app, io) {
   app.get("/admin/api/session", (req, res) => {
-    const activeSession = getValidSession(req);
-    if (!activeSession) {
+    const auth = getValidAuth(req);
+    if (!auth) {
       res.json({ authenticated: false });
       return;
     }
 
-    const { token, session } = activeSession;
-    setAdminCookie(req, res, token, session.expiresAt);
     res.json({
       authenticated: true,
-      expiresAt: session.expiresAt,
+      expiresAt: auth.expiresAt,
     });
   });
 
@@ -335,42 +378,39 @@ export default function registerAdminRoutes(app, io) {
 
     clearLoginFailures(ip);
 
-    const token = createSessionToken();
-    const createdAt = Date.now();
-    const expiresAt = createdAt + SESSION_TTL_MS;
-    adminSessions.set(token, {
-      createdAt,
-      expiresAt,
-      lastSeenAt: createdAt,
-      ip,
-    });
+    const expiresAt = Date.now() + ADMIN_AUTH_TOKEN_TTL_MS;
+    const token = createAdminToken(expiresAt);
+    if (!token) {
+      res.status(503).json({
+        message:
+          "Admin auth token secret is not configured. Set ADMIN_AUTH_SECRET (recommended), ADMIN_PASSWORD_HASH, or ADMIN_PASSWORD.",
+      });
+      return;
+    }
 
-    setAdminCookie(req, res, token, expiresAt);
     res.json({
       ok: true,
+      token,
+      tokenType: "Bearer",
       expiresAt,
     });
   });
 
-  app.post("/admin/api/logout", (req, res) => {
-    const activeSession = getValidSession(req);
-    if (activeSession) {
-      adminSessions.delete(activeSession.token);
-    }
-    clearAdminCookie(req, res);
+  app.post("/admin/api/logout", (_req, res) => {
+    // Stateless auth: frontend deletes the bearer token.
     res.json({ ok: true });
   });
 
-  app.get("/admin/api/rooms", requireAdminSession, (req, res) => {
+  app.get("/admin/api/rooms", requireAdminAuth, (_req, res) => {
     const roomList = [...rooms.values()].map((room) => roomSummary(room, io));
     res.json({ rooms: roomList });
   });
 
-  app.get("/admin/api/players", requireAdminSession, (_req, res) => {
+  app.get("/admin/api/players", requireAdminAuth, (_req, res) => {
     res.json({ players: getPlayersSnapshot(io) });
   });
 
-  app.post("/admin/api/rooms/close", requireAdminSession, (req, res) => {
+  app.post("/admin/api/rooms/close", requireAdminAuth, (req, res) => {
     const validation = validateRoomName(req.body?.roomName);
     if (!validation.ok) {
       res.status(400).json({ message: validation.error });
@@ -392,7 +432,7 @@ export default function registerAdminRoutes(app, io) {
     res.json({ ok: true });
   });
 
-  app.get("/admin/api/ai", requireAdminSession, (_req, res) => {
+  app.get("/admin/api/ai", requireAdminAuth, (_req, res) => {
     res.json({
       llmModel: getActiveLLMModel(),
       defaultLlmModel: getDefaultLLMModel(),
@@ -400,7 +440,7 @@ export default function registerAdminRoutes(app, io) {
     });
   });
 
-  app.post("/admin/api/ai/model", requireAdminSession, (req, res) => {
+  app.post("/admin/api/ai/model", requireAdminAuth, (req, res) => {
     const rawModel = typeof req.body?.model === "string" ? req.body.model.trim() : "";
     if (!rawModel) {
       res.status(400).json({ message: "Model is required." });
@@ -419,11 +459,11 @@ export default function registerAdminRoutes(app, io) {
     res.json({ ok: true, llmModel: nextModel });
   });
 
-  app.get("/admin/api/announcement", requireAdminSession, (_req, res) => {
+  app.get("/admin/api/announcement", requireAdminAuth, (_req, res) => {
     res.json({ announcement: normalizeAnnouncement() });
   });
 
-  app.post("/admin/api/announcement", requireAdminSession, (req, res) => {
+  app.post("/admin/api/announcement", requireAdminAuth, (req, res) => {
     const rawMessage = typeof req.body?.message === "string" ? req.body.message : "";
     const message = rawMessage.trim();
     if (!message) {
@@ -459,7 +499,7 @@ export default function registerAdminRoutes(app, io) {
     res.json({ ok: true, announcement });
   });
 
-  app.delete("/admin/api/announcement", requireAdminSession, (_req, res) => {
+  app.delete("/admin/api/announcement", requireAdminAuth, (_req, res) => {
     clearAnnouncement(io);
     res.json({ ok: true });
   });

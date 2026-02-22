@@ -22,10 +22,15 @@ continue uninterrupted.
 The backend now exposes admin APIs at `/admin/api/*`, and the frontend panel is
 available at `/admin`.
 
-Set one of these environment variables to enable login:
+Admin auth is stateless: login returns a signed bearer token, and each admin
+API request sends `Authorization: Bearer <token>`. This supports multiple
+simultaneous admins and does not rely on in-memory server sessions.
+
+Set these environment variables:
 
 | Variable | Description |
 | --- | --- |
+| `ADMIN_AUTH_SECRET` | Recommended. Secret used to sign/verify admin bearer tokens. |
 | `ADMIN_PASSWORD_HASH` | Preferred. bcrypt hash of your password. |
 | `ADMIN_PASSWORD` | Fallback plaintext password (less secure). |
 

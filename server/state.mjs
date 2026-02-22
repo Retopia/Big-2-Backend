@@ -1,6 +1,5 @@
 export const rooms = new Map(); // roomName -> Room instance
 export const usernameToPlayer = new Map(); // username -> Player instance
-export const adminSessions = new Map(); // sessionToken -> { createdAt, expiresAt, lastSeenAt, ip }
 export const announcementState = { current: null };
 
 const DEFAULT_LLM_MODEL = process.env.OPENROUTER_MODEL || "x-ai/grok-4-fast";
