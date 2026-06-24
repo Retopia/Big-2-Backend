@@ -60,18 +60,18 @@ function forfeitAfkPlayer(io, roomName, participantId) {
   }
 
   const afkName = current.name;
+  const isCreator = room.creatorID === current.participantId;
 
-  // End the active game (same outcome as a mid-game departure).
+  // Stop the game.
   room.status = "waiting";
   room.gameState = null;
-  io.to(room.id).emit("gameError", {
-    message: `${afkName} was removed for being away too long. The game has ended.`,
-  });
 
-  // Boot the AFK player's socket so their client falls back to the lobby.
+  // Boot the absent player's own socket so they fall back to the home screen.
   current.connected = false;
   if (current.id) {
-    io.to(current.id).emit("forceLeave");
+    io.to(current.id).emit("forceLeave", {
+      message: "You were removed from the game for being away too long.",
+    });
     const afkSocket = io.sockets.sockets.get(current.id);
     if (afkSocket) {
       afkSocket.leave(room.id);
@@ -81,7 +81,8 @@ function forfeitAfkPlayer(io, roomName, participantId) {
     current.socketId = null;
   }
 
-  if (room.creatorID === current.participantId) {
+  if (isCreator) {
+    // The host is the one who left: close the room and send everyone home.
     room.players.forEach((roomPlayer) => {
       roomPlayer.room = null;
       if (
@@ -89,18 +90,28 @@ function forfeitAfkPlayer(io, roomName, participantId) {
         roomPlayer.id &&
         roomPlayer.participantId !== current.participantId
       ) {
-        io.to(roomPlayer.id).emit("forceLeave");
+        io.to(roomPlayer.id).emit("forceLeave", {
+          message: `${afkName} (the host) left — the room was closed.`,
+        });
         io.sockets.sockets.get(roomPlayer.id)?.leave(room.id);
       }
       if (!roomPlayer.connected) releaseIdentity(roomPlayer);
     });
     rooms.delete(room.name);
   } else {
+    // A non-host left: abort the game and drop everyone left back to the lobby.
     room.removePlayer(current.participantId);
     current.room = null;
     releaseIdentity(current);
-    if (room.isEmpty()) rooms.delete(room.name);
-    else broadcastRoomUpdate(io, room);
+    if (room.isEmpty()) {
+      rooms.delete(room.name);
+    } else {
+      io.to(room.id).emit("gameAborted", {
+        message: `${afkName} left the game (away too long).`,
+        by: afkName,
+      });
+      broadcastRoomUpdate(io, room);
+    }
   }
 
   clearTurnTimer(roomName);

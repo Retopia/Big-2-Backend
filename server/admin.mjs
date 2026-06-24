@@ -4,12 +4,14 @@ import {
   announcementState,
   getActiveLLMModel,
   getDefaultLLMModel,
+  participantToPlayer,
   rooms,
   setActiveLLMModel,
   usernameToPlayer,
 } from "./state.mjs";
 import { broadcastRoomList } from "./utils/broadcast.mjs";
 import { validateRoomName } from "./utils/nameValidation.mjs";
+import { deleteUserAccount, listUsers } from "./userAuth.mjs";
 
 const ADMIN_AUTH_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const ADMIN_AUTH_TOKEN_VERSION = 1;
@@ -233,6 +235,26 @@ function setAnnouncement(io, announcement) {
   announcementTimeoutHandle = setTimeout(() => {
     clearAnnouncement(io);
   }, ttl);
+}
+
+function handleAdminDbError(error, res) {
+  if (error?.code === "DATABASE_UNAVAILABLE") {
+    res.status(503).json({
+      message: "Account storage is not configured. Set DATABASE_URL to manage accounts.",
+    });
+    return;
+  }
+  console.error("Admin user route error:", error);
+  res.status(500).json({ message: "Request failed." });
+}
+
+// Best-effort: if the just-deleted user has a live socket, boot it so they can't
+// keep playing on a now-revoked session. Their reconnect will resolve as a guest.
+function disconnectDeletedUser(io, userId) {
+  const player = participantToPlayer.get(`user:${userId}`);
+  if (!player || !player.id) return;
+  io.to(player.id).emit("forceLeave");
+  io.sockets.sockets.get(player.id)?.disconnect(true);
 }
 
 function closeRoom(io, room, reason = "This room was closed by admin.") {
@@ -502,5 +524,28 @@ export default function registerAdminRoutes(app, io) {
   app.delete("/admin/api/announcement", requireAdminAuth, (_req, res) => {
     clearAnnouncement(io);
     res.json({ ok: true });
+  });
+
+  app.get("/admin/api/users", requireAdminAuth, async (_req, res) => {
+    try {
+      const users = await listUsers({ limit: 200 });
+      res.json({ users });
+    } catch (error) {
+      handleAdminDbError(error, res);
+    }
+  });
+
+  app.post("/admin/api/users/:userId/delete", requireAdminAuth, async (req, res) => {
+    try {
+      const result = await deleteUserAccount(req.params.userId);
+      if (!result.ok) {
+        res.status(result.status || 400).json({ message: result.message });
+        return;
+      }
+      disconnectDeletedUser(io, req.params.userId);
+      res.json({ ok: true, username: result.username });
+    } catch (error) {
+      handleAdminDbError(error, res);
+    }
   });
 }

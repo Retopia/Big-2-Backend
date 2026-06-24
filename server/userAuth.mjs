@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { generateUserId } from "./utils/id.mjs";
-import { query } from "./db.mjs";
+import { query, withTransaction } from "./db.mjs";
 import {
   PLAYER_NAME_MAX_LENGTH,
   validatePlayerName,
@@ -65,6 +65,7 @@ async function getUserWithRatingById(userId) {
       FROM users
       LEFT JOIN ratings ON ratings.user_id = users.id
       WHERE users.id = $1
+        AND users.deleted_at IS NULL
       LIMIT 1
     `,
     [userId]
@@ -133,7 +134,7 @@ export async function loginUser({ email, password }) {
   }
 
   const result = await query(
-    "SELECT id, password_hash FROM users WHERE email = $1 LIMIT 1",
+    "SELECT id, password_hash FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1",
     [emailValidation.value]
   );
   const row = result.rows[0];
@@ -224,4 +225,85 @@ export async function getUserFromRequest(req) {
   const token = getBearerToken(req);
   if (!token) return null;
   return getUserByToken(token);
+}
+
+/** List active (non-deleted) accounts, newest first, for the admin panel. */
+export async function listUsers({ limit = 200 } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 500);
+  const result = await query(
+    `
+      SELECT
+        users.id,
+        users.email,
+        users.username,
+        users.created_at,
+        ratings.rating,
+        ratings.games_played,
+        ratings.wins,
+        ratings.losses
+      FROM users
+      LEFT JOIN ratings ON ratings.user_id = users.id
+      WHERE users.deleted_at IS NULL
+      ORDER BY users.created_at DESC
+      LIMIT $1
+    `,
+    [safeLimit]
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    username: row.username,
+    rating: Number(row.rating ?? 1500),
+    gamesPlayed: Number(row.games_played ?? 0),
+    wins: Number(row.wins ?? 0),
+    losses: Number(row.losses ?? 0),
+    createdAt: row.created_at,
+  }));
+}
+
+/**
+ * Delete an account. The row is retained (foreign keys from matches/participants
+ * forbid a hard delete and we want match history to survive), but it's marked
+ * deleted, its sessions are revoked, and its username/email are tombstoned to
+ * unique placeholders so the originals are freed for reuse. This is one-way —
+ * there is intentionally no restore.
+ */
+export async function deleteUserAccount(userId) {
+  if (typeof userId !== "string" || !userId) {
+    return { ok: false, status: 400, message: "User id is required." };
+  }
+
+  return withTransaction(async (client) => {
+    const existing = await client.query(
+      "SELECT username FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+      [userId]
+    );
+    if (existing.rowCount === 0) {
+      return { ok: false, status: 404, message: "Account not found or already deleted." };
+    }
+
+    const originalUsername = existing.rows[0].username;
+    const tombstoneUsername = `deleted_${userId}`.slice(0, 64);
+    const tombstoneEmail = `deleted_${userId}@deleted.invalid`;
+
+    await client.query(
+      `
+        UPDATE users
+        SET deleted_at = NOW(),
+            updated_at = NOW(),
+            username = $2,
+            email = $3
+        WHERE id = $1
+      `,
+      [userId, tombstoneUsername, tombstoneEmail]
+    );
+
+    await client.query(
+      "UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+      [userId]
+    );
+
+    return { ok: true, userId, username: originalUsername };
+  });
 }

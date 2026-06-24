@@ -203,40 +203,40 @@ export default function registerSocketHandlers(io) {
       return rooms.get(validation.value) || null;
     }
 
-    function endActiveGame(room, message) {
+    // Stop an in-progress game and clear its turn clock. Does not emit any
+    // player-facing reason — callers decide whether to abort-to-lobby or close.
+    function endActiveGame(room) {
       if (room.status === "playing") {
         room.status = "waiting";
         room.gameState = null;
         clearTurnTimer(room.name);
         io.to(room.id).emit("turnTimerCleared");
-        io.to(room.id).emit("gameError", { message });
       }
     }
 
-    function removeCreatorRoom(room) {
+    function removeCreatorRoom(room, reason = "The host left — the room was closed.") {
       clearTurnTimer(room.name);
       room.players.forEach((p) => {
         p.room = null;
         if (!p.isAI && p.id && p.participantId !== player.participantId) {
-          io.to(p.id).emit("forceLeave");
+          io.to(p.id).emit("forceLeave", { message: reason });
           io.sockets.sockets.get(p.id)?.leave(room.id);
         }
       });
       rooms.delete(room.name);
     }
 
-    function leaveRoomInternal(room, leaveMessage = null) {
+    function leaveRoomInternal(room) {
       if (!room) {
         player.room = null;
         return;
       }
 
-      if (leaveMessage) {
-        endActiveGame(room, leaveMessage);
-      }
+      const wasPlaying = room.status === "playing";
+      endActiveGame(room);
 
       if (room.creatorID === player.participantId) {
-        removeCreatorRoom(room);
+        removeCreatorRoom(room, `${player.name} (the host) left — the room was closed.`);
       } else {
         room.removePlayer(player.participantId);
         socket.leave(room.id);
@@ -244,6 +244,13 @@ export default function registerSocketHandlers(io) {
         if (room.isEmpty()) {
           rooms.delete(room.name);
         } else {
+          // Mid-game departure: drop everyone left back to the lobby and name who left.
+          if (wasPlaying) {
+            io.to(room.id).emit("gameAborted", {
+              message: `${player.name} left the game.`,
+              by: player.name,
+            });
+          }
           broadcastRoomUpdate(io, room);
         }
       }
@@ -263,19 +270,32 @@ export default function registerSocketHandlers(io) {
         return;
       }
 
+      // While a game is in progress, absence is handled solely by the per-turn
+      // clock — you are only forfeited on your OWN turn. Being away while it's
+      // someone else's turn is fine, so don't end the game here. Re-check later so
+      // the seat is still freed if the game ends (or they're forfeited) while away.
+      if (room.status === "playing") {
+        targetPlayer.disconnectTimer = setTimeout(
+          () => finalizeDisconnect(participantId, room),
+          RECONNECT_GRACE_MS
+        );
+        return;
+      }
+
+      // Lobby / post-game: the grace window expired, so free their seat.
       if (room.creatorID === targetPlayer.participantId) {
-        endActiveGame(room, "The room creator disconnected. The room has been closed.");
         room.players.forEach((roomPlayer) => {
           roomPlayer.room = null;
           if (!roomPlayer.isAI && roomPlayer.id) {
-            io.to(roomPlayer.id).emit("forceLeave");
+            io.to(roomPlayer.id).emit("forceLeave", {
+              message: "The host left — the room was closed.",
+            });
             io.sockets.sockets.get(roomPlayer.id)?.leave(room.id);
           }
           if (!roomPlayer.connected) releasePlayerIdentity(roomPlayer);
         });
         rooms.delete(room.name);
       } else {
-        endActiveGame(room, "A player disconnected. The game has ended.");
         room.removePlayer(targetPlayer.participantId);
         targetPlayer.room = null;
 
@@ -406,7 +426,7 @@ export default function registerSocketHandlers(io) {
 
       if (player.room && player.room !== roomValidation.value) {
         const previousRoom = rooms.get(player.room);
-        leaveRoomInternal(previousRoom, "A player left. The game has ended.");
+        leaveRoomInternal(previousRoom);
       }
 
       let room = rooms.get(roomValidation.value);
@@ -488,7 +508,7 @@ export default function registerSocketHandlers(io) {
 
       if (player.room && player.room !== roomValidation.value) {
         const previousRoom = rooms.get(player.room);
-        leaveRoomInternal(previousRoom, "A player left. The game has ended.");
+        leaveRoomInternal(previousRoom);
       }
 
       if (rooms.has(roomValidation.value)) {
@@ -726,7 +746,7 @@ export default function registerSocketHandlers(io) {
     /** Leave room */
     socket.on("leaveRoom", () => {
       const room = player.room ? rooms.get(player.room) : null;
-      leaveRoomInternal(room, "A player left. The game has ended.");
+      leaveRoomInternal(room);
       broadcastRoomList(io, rooms);
     });
 

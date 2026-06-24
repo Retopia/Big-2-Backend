@@ -139,6 +139,11 @@ export async function initDatabase() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower
       ON users (LOWER(username));
 
+    -- Soft-delete marker for accounts. Deleted accounts are hidden from the
+    -- leaderboard and blocked from logging in, but their match history (which
+    -- stores a display_name snapshot per row) stays intact.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
     CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id
       ON user_sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash

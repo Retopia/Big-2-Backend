@@ -29,6 +29,7 @@ export default function registerLeaderboardRoutes(app) {
             ratings.updated_at
           FROM ratings
           JOIN users ON users.id = ratings.user_id
+          WHERE users.deleted_at IS NULL
           ORDER BY ratings.rating DESC, ratings.games_played DESC, users.username ASC
           LIMIT $1
         `,

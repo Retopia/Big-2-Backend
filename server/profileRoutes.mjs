@@ -25,6 +25,7 @@ export default function registerProfileRoutes(app) {
           FROM users
           LEFT JOIN ratings ON ratings.user_id = users.id
           WHERE users.id = $1
+            AND users.deleted_at IS NULL
           LIMIT 1
         `,
         [userId]
@@ -36,13 +37,16 @@ export default function registerProfileRoutes(app) {
         return;
       }
 
-      // 1-based leaderboard rank: how many players outrank this user, plus one.
+      // 1-based leaderboard rank: how many (non-deleted) players outrank this user,
+      // plus one. Excluding deleted accounts keeps this consistent with the board.
       const rankResult = await query(
         `
           SELECT COUNT(*) + 1 AS rank
           FROM ratings r
+          JOIN users u ON u.id = r.user_id
           JOIN ratings me ON me.user_id = $1
-          WHERE r.rating > me.rating
+          WHERE u.deleted_at IS NULL
+            AND r.rating > me.rating
         `,
         [userId]
       );
