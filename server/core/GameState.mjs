@@ -13,6 +13,8 @@ export class GameState {
     }
 
     this.players = players;
+    this.status = "playing";
+    this.winner = null;
     this.currentPlayerIndex = 0;
     this.lastPlayedHand = []; // The last played hand on the table
     this.scores = {}; // Keeps track of wins
@@ -170,6 +172,13 @@ export class GameState {
       this.winner = playerName;
       // Update scores
       this.scores[playerName] = (this.scores[playerName] || 0) + 1;
+
+      // Game is over — do NOT advance the turn past a finished game.
+      return {
+        success: true,
+        gameStatus: "finished",
+        winner: this.winner,
+      };
     }
 
     // Move to next player

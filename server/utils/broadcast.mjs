@@ -12,7 +12,7 @@ export function broadcastGameState(io, room) {
   if (!room.gameState) return;
 
   room.players.forEach((player) => {
-    if (player.isAI || !player.id) return;
+    if (player.isAI || !player.connected || !player.id) return;
 
     const state = room.gameState;
     const current = state.getCurrentPlayer().name;
@@ -29,6 +29,9 @@ export function broadcastGameState(io, room) {
         name: p.name,
         cardCount: state.playerHands[p.name]?.length || 0,
         isCurrentPlayer: p.name === current,
+        connected: Boolean(p.connected || p.isAI),
+        hasAccount: Boolean(p.userId),
+        rating: p.rating || null,
       })),
       round: state.round,
       lastPlayedBy,
@@ -44,7 +47,15 @@ export function broadcastGameState(io, room) {
 export function broadcastRoomUpdate(io, room) {
   io.to(room.id).emit("roomUpdate", {
     players: room.players.map((p) => p.name),
+    playerDetails: room.players.map((player) => ({
+      name: player.name,
+      connected: Boolean(player.connected || player.isAI),
+      isAI: Boolean(player.isAI),
+      hasAccount: Boolean(player.userId),
+      rating: player.rating || null,
+    })),
     creatorID: room.creatorID,
+    rated: Boolean(room.rated),
   });
 }
 

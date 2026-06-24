@@ -215,7 +215,7 @@ export function validatePlay(moveHistory, lastPlayedHand, cards, lowestCardValue
       // Check to see if cards contains card of the lowest card value
       let containsSmallest = false;
       for (let i = 0; i < cards.length; i++) {
-        if (this.getCardValue(cards[i]) === lowestCardValue) {
+        if (getCardValue(cards[i]) === lowestCardValue) {
           containsSmallest = true;
           break;
         }

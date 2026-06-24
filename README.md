@@ -40,6 +40,23 @@ Generate a bcrypt hash locally:
 node -e "import bcrypt from 'bcryptjs'; bcrypt.hash(process.argv[1], 12).then(console.log)" "your-password-here"
 ```
 
+## Accounts, reconnects, and ratings
+
+User accounts and ELO ratings are stored in Postgres. On startup, the server
+creates the required tables if `DATABASE_URL` is configured. If it is not set,
+guest play still works and account endpoints return `503`.
+
+Set these environment variables:
+
+| Variable | Description |
+| --- | --- |
+| `DATABASE_URL` | Postgres connection string for users, sessions, ratings, and match records. |
+| `PGSSLMODE` | Optional. Use `require` when the Postgres provider requires TLS. |
+| `SOCKET_RECONNECT_GRACE_MS` | Optional. Time to preserve a player after a socket drop; defaults to `120000`. |
+
+Ranked rooms require logged-in human players only. Casual rooms still allow
+guest players and AI opponents.
+
 ## Environment files
 
 Use these files:

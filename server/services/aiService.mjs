@@ -4,6 +4,8 @@ import { generateRandomUsername } from "../utils/id.mjs";
 import { ensureUniqueName, PLAYER_NAME_MAX_LENGTH } from "../utils/nameValidation.mjs";
 import * as StandardAIStrategy from '../core/StandardAIStrategy.mjs';
 import * as LLMStrategy from '../core/LLMStrategy.mjs';
+import { recordGameResult } from "./ratingService.mjs";
+import { armTurnTimer, clearTurnTimer } from "./turnTimer.mjs";
 
 /**
  * Handles the AI's turn logic with a delay for realism (standard AI only).
@@ -24,6 +26,8 @@ export function processAITurn(io, room) {
 
       // Game finished condition
       if (result.gameStatus === "finished") {
+        clearTurnTimer(room.name);
+        await recordGameResult(room, result.winner);
         broadcastGameEnd(io, room, result.winner, room.gameState.scores);
 
         setTimeout(() => {
@@ -39,9 +43,10 @@ export function processAITurn(io, room) {
       // Regular broadcast
       broadcastGameState(io, room);
 
-      // Continue AI chain if next player is AI
+      // Continue AI chain if next player is AI, otherwise start the human's clock.
       const next = room.gameState.getCurrentPlayer();
       if (next?.isAI) processAITurn(io, room);
+      else armTurnTimer(io, room);
     } catch (error) {
       console.error('Failed to process AI turn:', error);
     }
@@ -58,7 +63,8 @@ export function addAIPlayer(io, socket, roomName, difficulty, suppressBroadcast 
     return;
   }
 
-  if (room.creatorID !== socket.id) {
+  const requesterParticipantId = socket.data?.player?.participantId || socket.id;
+  if (room.creatorID !== requesterParticipantId) {
     socket.emit("gameError", { message: "Only the creator can add AI players." });
     return;
   }
@@ -82,9 +88,11 @@ export function addAIPlayer(io, socket, roomName, difficulty, suppressBroadcast 
 
   const aiPlayer = {
     id: null,
+    participantId: `ai:${roomName}:${aiName}`,
     name: aiName,
     room: roomName,
     difficulty,
+    connected: true,
     isAI: true,
   };
 

@@ -1,13 +1,14 @@
 import { generateRoomId } from "../utils/id.mjs";
 
 export class Room {
-  constructor(name, creatorID) {
+  constructor(name, creatorID, options = {}) {
     this.id = generateRoomId(name);
     this.name = name;
     this.creatorID = creatorID; // standardized casing
     this.players = [];        // Array of player objects
     this.status = "waiting";  // "waiting" | "playing" | "finished"
     this.gameState = null;    // Instance of GameState
+    this.rated = Boolean(options.rated);
   }
 
   /** Add a player object */
@@ -20,7 +21,10 @@ export class Room {
       return { success: false, message: "Room is full." };
     }
 
-    if (player.id && this.players.some((p) => p.id && p.id === player.id)) {
+    if (
+      player.participantId &&
+      this.players.some((p) => p.participantId && p.participantId === player.participantId)
+    ) {
       return { success: false, message: "Player already in room." };
     }
 
@@ -32,9 +36,9 @@ export class Room {
     return { success: true };
   }
 
-  /** Remove player by id */
-  removePlayer(playerId) {
-    this.players = this.players.filter(p => p.id !== playerId);
+  /** Remove player by stable participant id */
+  removePlayer(participantId) {
+    this.players = this.players.filter(p => p.participantId !== participantId);
   }
 
   /** Returns true if all players are AIs or none remain */
@@ -44,10 +48,10 @@ export class Room {
     return aiCount === this.players.length;
   }
 
-  /** Return player object by id or name */
+  /** Return player object by socket id, participant id, or name */
   findPlayer(identifier) {
     return this.players.find(
-      p => p.id === identifier || p.name === identifier
+      p => p.id === identifier || p.participantId === identifier || p.name === identifier
     );
   }
 
@@ -69,7 +73,14 @@ export class Room {
       id: this.id,
       name: this.name,
       status: this.status,
-      players: this.players,
+      rated: this.rated,
+      players: this.players.map((player) => ({
+        name: player.name,
+        connected: Boolean(player.connected || player.isAI),
+        isAI: Boolean(player.isAI),
+        hasAccount: Boolean(player.userId),
+        rating: player.rating || null,
+      })),
       creatorID: this.creatorID,
     };
   }
