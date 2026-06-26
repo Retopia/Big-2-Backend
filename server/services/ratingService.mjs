@@ -1,7 +1,7 @@
 import { hasDatabaseConfig, query, withTransaction } from "../db.mjs";
 import { generateUserId } from "../utils/id.mjs";
 
-const DEFAULT_RATING = 1500;
+const DEFAULT_RATING = 1000;
 const K_FACTOR = 32;
 
 function expectedScore(playerRating, opponentRating) {
@@ -147,6 +147,115 @@ export async function recordGameResult(room, winnerName) {
   } catch (error) {
     if (error?.code !== "DATABASE_UNAVAILABLE") {
       console.error("Failed to record rated game:", error);
+    }
+    return null;
+  }
+}
+
+/**
+ * Record a ranked game that ended because a player abandoned it (timed out on
+ * their turn or left mid-game). The leaver is treated as having lost a pairwise
+ * Elo match to EACH remaining human (zero-sum vs them); the survivors each take
+ * the corresponding gain and a forfeit win. No single winner is recorded.
+ *
+ * `leaver` and `remainingHumans` must be captured by the caller BEFORE the room
+ * is mutated. Safe to call fire-and-forget.
+ */
+export async function recordAbandonment(room, leaver, remainingHumans) {
+  if (!room?.rated || !hasDatabaseConfig()) return null;
+  if (!leaver || leaver.isAI || !leaver.userId) return null;
+
+  const survivors = (remainingHumans || []).filter(
+    (p) => p && !p.isAI && p.userId && p.userId !== leaver.userId
+  );
+  if (survivors.length === 0) return null;
+
+  const userIds = [leaver.userId, ...survivors.map((p) => p.userId)];
+
+  try {
+    const ratingsBefore = await getRatings(userIds);
+    const deltas = new Map(userIds.map((userId) => [userId, 0]));
+    const leaverRating = ratingsBefore.get(leaver.userId) || DEFAULT_RATING;
+
+    survivors.forEach((survivor) => {
+      const survivorRating = ratingsBefore.get(survivor.userId) || DEFAULT_RATING;
+      const survivorDelta = Math.round(
+        K_FACTOR * (1 - expectedScore(survivorRating, leaverRating))
+      );
+      const leaverDelta = Math.round(
+        K_FACTOR * (0 - expectedScore(leaverRating, survivorRating))
+      );
+      deltas.set(survivor.userId, (deltas.get(survivor.userId) || 0) + survivorDelta);
+      deltas.set(leaver.userId, (deltas.get(leaver.userId) || 0) + leaverDelta);
+    });
+
+    const matchId = generateUserId();
+    const participants = [
+      { player: leaver, won: false },
+      ...survivors.map((player) => ({ player, won: true })),
+    ];
+
+    await withTransaction(async (client) => {
+      await client.query(
+        `
+          INSERT INTO matches (id, room_name, player_count, rated, winner_user_id, ended_at)
+          VALUES ($1, $2, $3, TRUE, NULL, NOW())
+        `,
+        [matchId, room.name, participants.length]
+      );
+
+      for (const { player, won } of participants) {
+        const before = ratingsBefore.get(player.userId) || DEFAULT_RATING;
+        const delta = deltas.get(player.userId) || 0;
+        const after = before + delta;
+
+        await client.query(
+          `
+            UPDATE ratings
+            SET
+              rating = $2,
+              games_played = games_played + 1,
+              wins = wins + $3,
+              losses = losses + $4,
+              updated_at = NOW()
+            WHERE user_id = $1
+          `,
+          [player.userId, after, won ? 1 : 0, won ? 0 : 1]
+        );
+
+        await client.query(
+          `
+            INSERT INTO match_participants (
+              id, match_id, user_id, display_name, placement,
+              cards_remaining, rating_before, rating_after, rating_delta
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          `,
+          [
+            generateUserId(),
+            matchId,
+            player.userId,
+            player.name,
+            won ? 1 : 2,
+            null,
+            before,
+            after,
+            delta,
+          ]
+        );
+      }
+    });
+
+    participants.forEach(({ player }) => {
+      player.rating =
+        (ratingsBefore.get(player.userId) || DEFAULT_RATING) +
+        (deltas.get(player.userId) || 0);
+    });
+
+    return { matchId, rated: true, abandoned: true };
+  } catch (error) {
+    if (error?.code !== "DATABASE_UNAVAILABLE") {
+      console.error("Failed to record abandoned game:", error);
     }
     return null;
   }

@@ -8,6 +8,7 @@
  */
 import { broadcastRoomUpdate, broadcastRoomList } from "../utils/broadcast.mjs";
 import { participantToPlayer, rooms, usernameToPlayer } from "../state.mjs";
+import { recordAbandonment } from "./ratingService.mjs";
 
 const DEFAULT_TURN_TIMEOUT_MS = 60 * 1000;
 export const TURN_TIMEOUT_MS =
@@ -61,6 +62,15 @@ function forfeitAfkPlayer(io, roomName, participantId) {
 
   const afkName = current.name;
   const isCreator = room.creatorID === current.participantId;
+
+  // For ranked games, the abandoner takes a forfeit loss vs each remaining human.
+  // Capture survivors before any room mutation, then record fire-and-forget.
+  if (room.rated) {
+    const survivors = room.players.filter(
+      (p) => !p.isAI && p.userId && p.participantId !== current.participantId
+    );
+    recordAbandonment(room, current, survivors).catch(() => {});
+  }
 
   // Stop the game.
   room.status = "waiting";
@@ -120,9 +130,10 @@ function forfeitAfkPlayer(io, roomName, participantId) {
 }
 
 /**
- * (Re)start the clock for the room's current player. No-op (and clears any
+ * Start a FRESH clock for the room's current player. No-op (and clears any
  * existing timer) when the game isn't running or the current player is an AI.
- * Call this right after every broadcastGameState.
+ * Call this on every genuine turn change (and when the current player reconnects
+ * on their own turn, so coming back gives them their full think-time again).
  */
 export function armTurnTimer(io, room) {
   if (!room) return;
@@ -139,30 +150,44 @@ export function armTurnTimer(io, room) {
     return;
   }
 
-  const existing = turnTimers.get(room.name);
-  let deadline;
-
-  if (existing && existing.participantId === current.participantId) {
-    // Same player already on the clock (e.g. they just reconnected). Preserve the
-    // original deadline so a reconnect can neither reset nor dodge the AFK timer.
-    deadline = existing.deadline;
-  } else {
-    clearTurnTimer(room.name);
-    deadline = Date.now() + TURN_TIMEOUT_MS;
-    const handle = setTimeout(
-      () => forfeitAfkPlayer(io, room.name, current.participantId),
-      TURN_TIMEOUT_MS
-    );
-    turnTimers.set(room.name, {
-      handle,
-      deadline,
-      participantId: current.participantId,
-    });
-  }
+  clearTurnTimer(room.name);
+  const deadline = Date.now() + TURN_TIMEOUT_MS;
+  const handle = setTimeout(
+    () => forfeitAfkPlayer(io, room.name, current.participantId),
+    TURN_TIMEOUT_MS
+  );
+  turnTimers.set(room.name, {
+    handle,
+    deadline,
+    participantId: current.participantId,
+  });
 
   io.to(room.id).emit("turnTimer", {
     currentPlayer: current.name,
     deadline,
+    serverNow: Date.now(),
+    durationMs: TURN_TIMEOUT_MS,
+  });
+}
+
+/**
+ * Re-send the CURRENT turn clock to a (re)connecting client without resetting it.
+ * Used when a non-current player reconnects: they should see the live countdown
+ * for whoever is on the clock, but their reconnect must not extend that clock.
+ */
+export function resyncTurnTimer(io, room, targetSocketId) {
+  if (!room || !targetSocketId) return;
+
+  const entry = turnTimers.get(room.name);
+  if (!entry || room.status !== "playing" || !room.gameState) {
+    io.to(targetSocketId).emit("turnTimerCleared");
+    return;
+  }
+
+  const current = room.gameState.getCurrentPlayer();
+  io.to(targetSocketId).emit("turnTimer", {
+    currentPlayer: current?.name,
+    deadline: entry.deadline,
     serverNow: Date.now(),
     durationMs: TURN_TIMEOUT_MS,
   });

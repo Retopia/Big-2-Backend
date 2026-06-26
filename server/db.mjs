@@ -92,7 +92,7 @@ export async function initDatabase() {
 
     CREATE TABLE IF NOT EXISTS ratings (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-      rating INTEGER NOT NULL DEFAULT 1500,
+      rating INTEGER NOT NULL DEFAULT 1000,
       games_played INTEGER NOT NULL DEFAULT 0,
       wins INTEGER NOT NULL DEFAULT 0,
       losses INTEGER NOT NULL DEFAULT 0,
@@ -143,6 +143,9 @@ export async function initDatabase() {
     -- leaderboard and blocked from logging in, but their match history (which
     -- stores a display_name snapshot per row) stays intact.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+    -- New players start at 1000 ELO.
+    ALTER TABLE ratings ALTER COLUMN rating SET DEFAULT 1000;
 
     CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id
       ON user_sessions(user_id);

@@ -43,10 +43,11 @@ export function processAITurn(io, room) {
       // Regular broadcast
       broadcastGameState(io, room);
 
-      // Continue AI chain if next player is AI, otherwise start the human's clock.
+      // Re-evaluate the clock (fresh 60s for a human, cleared for an AI), then
+      // continue the AI chain if the next player is also an AI.
       const next = room.gameState.getCurrentPlayer();
+      armTurnTimer(io, room);
       if (next?.isAI) processAITurn(io, room);
-      else armTurnTimer(io, room);
     } catch (error) {
       console.error('Failed to process AI turn:', error);
     }

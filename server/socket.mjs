@@ -12,7 +12,7 @@ import { generateRandomUsername } from "./utils/id.mjs";
 import { Room } from "./core/Room.mjs";
 import { GameState } from "./core/GameState.mjs";
 import { addAIPlayer, processAITurn } from "./services/aiService.mjs";
-import { recordGameResult } from "./services/ratingService.mjs";
+import { recordGameResult, recordAbandonment } from "./services/ratingService.mjs";
 import {
   ensureUniqueName,
   PLAYER_NAME_MAX_LENGTH,
@@ -20,7 +20,11 @@ import {
   validateRoomName,
 } from "./utils/nameValidation.mjs";
 import { getUserByToken } from "./userAuth.mjs";
-import { armTurnTimer, clearTurnTimer } from "./services/turnTimer.mjs";
+import {
+  armTurnTimer,
+  clearTurnTimer,
+  resyncTurnTimer,
+} from "./services/turnTimer.mjs";
 
 // Shared in-memory state
 import {
@@ -233,6 +237,16 @@ export default function registerSocketHandlers(io) {
       }
 
       const wasPlaying = room.status === "playing";
+
+      // Leaving a ranked game in progress is a forfeit: the leaver loses to each
+      // remaining human. Capture survivors before mutating the room.
+      if (wasPlaying && room.rated) {
+        const survivors = room.players.filter(
+          (p) => !p.isAI && p.userId && p.participantId !== player.participantId
+        );
+        recordAbandonment(room, player, survivors).catch(() => {});
+      }
+
       endActiveGame(room);
 
       if (room.creatorID === player.participantId) {
@@ -350,7 +364,14 @@ export default function registerSocketHandlers(io) {
           broadcastRoomUpdate(io, room);
           if (room.status === "playing") {
             broadcastGameState(io, room);
-            armTurnTimer(io, room);
+            const current = room.gameState?.getCurrentPlayer?.();
+            if (current && !current.isAI && current.participantId === player.participantId) {
+              // Reconnecting on your own turn: hand back a fresh clock.
+              armTurnTimer(io, room);
+            } else {
+              // Someone else is on the clock: show their live countdown, don't reset it.
+              resyncTurnTimer(io, room, socket.id);
+            }
           }
         }
       }
@@ -446,27 +467,32 @@ export default function registerSocketHandlers(io) {
         return;
       }
 
-      if (room.status !== "waiting") {
-        socket.emit("joinError", { message: "This room already has a game in progress." });
-        return;
-      }
-
-      const conflictingName = room.players.some(
-        (roomPlayer) =>
-          roomPlayer.name === player.name &&
-          roomPlayer.participantId !== player.participantId
-      );
-      if (conflictingName) {
-        const uniqueNameInRoom = ensureUniqueName(
-          player.name,
-          (candidate) => room.players.some((roomPlayer) => roomPlayer.name === candidate),
-          PLAYER_NAME_MAX_LENGTH
-        );
-        setPlayerName(buildUniqueGlobalName(uniqueNameInRoom));
-      }
-
       const existingPlayer = room.findPlayer(player.participantId);
+
       if (!existingPlayer) {
+        // New joiner gates — an existing participant rejoining (e.g. via the room
+        // URL after a refresh) bypasses these so they aren't locked out of a game
+        // they're already in.
+        if (room.status !== "waiting") {
+          socket.emit("joinError", { message: "This room already has a game in progress." });
+          return;
+        }
+
+        // Resolve any name collision with someone already in the room.
+        const conflictingName = room.players.some(
+          (roomPlayer) =>
+            roomPlayer.name === player.name &&
+            roomPlayer.participantId !== player.participantId
+        );
+        if (conflictingName) {
+          const uniqueNameInRoom = ensureUniqueName(
+            player.name,
+            (candidate) => room.players.some((roomPlayer) => roomPlayer.name === candidate),
+            PLAYER_NAME_MAX_LENGTH
+          );
+          setPlayerName(buildUniqueGlobalName(uniqueNameInRoom));
+        }
+
         const addResult = room.addPlayer(player);
         if (!addResult.success) {
           socket.emit("joinError", { message: addResult.message });
@@ -480,6 +506,13 @@ export default function registerSocketHandlers(io) {
       emitSession();
       socket.emit("assignUsername", { username: player.name });
       broadcastRoomUpdate(io, room);
+
+      // Existing participant rejoining mid-game: resync them to the live game.
+      if (existingPlayer && room.status === "playing") {
+        broadcastGameState(io, room);
+        resyncTurnTimer(io, room, socket.id);
+      }
+
       broadcastRoomList(io, rooms);
     });
 
@@ -558,10 +591,9 @@ export default function registerSocketHandlers(io) {
 
       broadcastGameState(io, room);
 
+      armTurnTimer(io, room);
       if (room.gameState.getCurrentPlayer().isAI) {
         processAITurn(io, room);
-      } else {
-        armTurnTimer(io, room);
       }
 
       io.to(room.id).emit("gameStarted");
@@ -679,8 +711,9 @@ export default function registerSocketHandlers(io) {
 
       broadcastGameState(io, room);
       const next = room.gameState.getCurrentPlayer();
+      // Always (re)evaluate the clock: fresh 60s for a human, cleared for an AI.
+      armTurnTimer(io, room);
       if (next.isAI) processAITurn(io, room);
-      else armTurnTimer(io, room);
     });
 
     /** Start normal game */
@@ -736,8 +769,8 @@ export default function registerSocketHandlers(io) {
       broadcastGameState(io, room);
 
       const first = room.gameState.getCurrentPlayer();
+      armTurnTimer(io, room);
       if (first.isAI) processAITurn(io, room);
-      else armTurnTimer(io, room);
 
       io.to(room.id).emit("gameStarted");
       broadcastRoomList(io, rooms);

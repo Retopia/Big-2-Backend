@@ -1,7 +1,7 @@
 import { query } from "./db.mjs";
 
 const RECENT_MATCH_LIMIT = 20;
-const DEFAULT_RATING = 1500;
+const DEFAULT_RATING = 1000;
 
 export default function registerProfileRoutes(app) {
   app.get("/api/users/:userId/profile", async (req, res) => {
@@ -91,7 +91,9 @@ export default function registerProfileRoutes(app) {
           roomName: row.room_name,
           playerCount: Number(row.player_count),
           rated: Boolean(row.rated),
-          won: row.winner_user_id === userRow.id,
+          // placement 1 = won (true winner, or a survivor in a forfeited game);
+          // works for both normal results and no-single-winner abandonments.
+          won: Number(row.placement) === 1,
           placement: row.placement != null ? Number(row.placement) : null,
           cardsRemaining:
             row.cards_remaining != null ? Number(row.cards_remaining) : null,
