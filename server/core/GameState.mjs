@@ -59,12 +59,12 @@ export class GameState {
       // There's 1 card left over, we'll give it to the player with the lowest card
     }
 
-    // Find player with the lowest card (3 of clubs with value 3.1)
+    // Find player with the lowest card (3 of diamonds with value 3.1)
     let lowestCardPlayerIndex = 0;
     let lowestCardValue = Infinity;
     let foundLowestClub = false;
 
-    // First search for the 3 of clubs (value 3.1) specifically
+    // First search for the 3 of diamonds (value 3.1) specifically
     for (let i = 0; i < this.players.length; i++) {
       const playerName = this.players[i].name;
       const hand = this.playerHands[playerName];

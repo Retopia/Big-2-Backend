@@ -1,15 +1,17 @@
 {
+  "name": "big-2-backend",
+  "private": true,
+  "type": "module",
   "scripts": {
     "dev": "nodemon server/index.mjs",
+    "test": "npm run test:ai && node server/tests/tests.mjs",
     "test:ai": "node server/tests/standardAIStrategy.test.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "crypto": "^1.0.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
-    "http": "^0.0.1-security",
     "pg": "^8.22.0",
     "socket.io": "^4.8.1"
   },

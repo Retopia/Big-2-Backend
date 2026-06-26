@@ -78,8 +78,11 @@ const cards = {
 };
 
 // Helper function to check and log test results
+let failedTests = 0;
+
 function testResult(testName, actual, expected) {
   const passed = JSON.stringify(actual) === JSON.stringify(expected);
+  if (!passed) failedTests += 1;
   console.log(`${testName}: ${passed ? '✅ PASS' : '❌ FAIL'}`);
   console.log(`  Actual: ${JSON.stringify(actual)}`);
   console.log(`  Expected: ${JSON.stringify(expected)}`);
@@ -88,8 +91,8 @@ function testResult(testName, actual, expected) {
 
 // Test getCardValue
 console.log('\n--- Testing getCardValue ---');
-testResult('Club 3', getCardValue(cards.club3), 3.1); // Club = 0.1
-testResult('Diamond K', getCardValue(cards.diamondK), 13.2); // Diamond = 0.2
+testResult('Diamond 3', getCardValue(cards.diamond3), 3.1); // Diamond = 0.1
+testResult('Club K', getCardValue(cards.clubK), 13.2); // Club = 0.2
 testResult('Heart 2', getCardValue(cards.heart2), 15.3); // Heart = 0.3
 testResult('Spade A', getCardValue(cards.spadeA), 14.4); // Spade = 0.4
 testResult('Club 2 > Spade A?', getCardValue(cards.club2) > getCardValue(cards.spadeA), true); // 2 is highest card
@@ -118,52 +121,39 @@ testResult('Not Straight', isStraight([cards.club4, cards.diamond5, cards.heart7
 
 // Test validateHand
 console.log('\n--- Testing validateHand ---');
-testResult('Single', validateHand([cards.clubA]), { valid: true, type: "single", value: 14.1 });
+testResult('Single', validateHand([cards.diamondA]), { valid: true, type: "single", value: 14.1 });
 testResult('Pair', validateHand([cards.club3, cards.diamond3]), { valid: true, type: "pair", value: 3.2 });
 testResult('Invalid Pair', validateHand([cards.club3, cards.diamond4]), { valid: false, message: "Not a valid pair" });
 testResult('Triple', validateHand([cards.club7, cards.diamond7, cards.heart7]), { valid: true, type: "triple", value: 7.3 });
 testResult('Straight', validateHand([cards.club4, cards.diamond5, cards.heart6, cards.spade7, cards.club8]), 
-  { valid: true, type: "straight", value: 8.1 });
+  { valid: true, type: "straight", value: 8.2 });
 testResult('Flush', validateHand([cards.club4, cards.club7, cards.club9, cards.clubQ, cards.clubA]), 
-  { valid: true, type: "flush", value: 14.1 });
+  { valid: true, type: "flush", value: 14.2 });
 testResult('Full House', validateHand([cards.clubK, cards.diamondK, cards.heartK, cards.club8, cards.diamond8]), 
   { valid: true, type: "full_house", value: 13.1 });
 testResult('Four of a Kind', validateHand([cards.club8, cards.diamond8, cards.heart8, cards.spade8, cards.clubK]), 
   { valid: true, type: "four_of_a_kind", value: 8.1 });
 testResult('Straight Flush', validateHand([cards.club4, cards.club5, cards.club6, cards.club7, cards.club8]), 
-  { valid: true, type: "straight_flush", value: 8.1 });
+  { valid: true, type: "straight_flush", value: 8.2 });
 testResult('Royal Flush', validateHand([cards.club10, cards.clubJ, cards.clubQ, cards.clubK, cards.clubA]), 
-  { valid: true, type: "royal_flush", value: 14.1 });
+  { valid: true, type: "royal_flush", value: 14.2 });
 
-// Setup for validatePlay tests
-let lastPlayedHand = [];
-
-// Wrapper function for validatePlay that accepts lastPlayedHand as parameter
-function testValidatePlay(cards, lastlastPlayedHand) {
-  // Store the original lastPlayedHand
-  const originallastPlayedHand = lastPlayedHand;
-  
-  // Set lastPlayedHand for the test
-  lastPlayedHand = lastlastPlayedHand || [];
-  
-  // Call validatePlay
-  const result = validatePlay(lastlastPlayedHand, cards);
-  
-  // Restore original lastPlayedHand
-  lastPlayedHand = originallastPlayedHand;
-  
-  return result;
+function testValidatePlay(cardsToPlay, lastPlayedHand = [], options = {}) {
+  const moveHistory =
+    options.moveHistory || (lastPlayedHand.length ? [{ name: "Previous", handPlayed: lastPlayedHand }] : []);
+  const lowestCardValue = options.lowestCardValue ?? getCardValue(cards.diamond3);
+  return validatePlay(moveHistory, lastPlayedHand, cardsToPlay, lowestCardValue);
 }
 
 // Test validatePlay
 console.log('\n--- Testing validatePlay ---');
 testResult('First play (single)', 
-  testValidatePlay([cards.club3], []), 
-  { valid: true, type: 'single', value: 3.1 });
+  testValidatePlay([cards.diamond3], []), 
+  { valid: true });
 
 testResult('Higher single', 
   testValidatePlay([cards.club5], [cards.diamond3]), 
-  { valid: true, type: 'single', value: 5.1 });
+  { valid: true, type: 'single', value: 5.2 });
 
 testResult('Lower single', 
   testValidatePlay([cards.club3], [cards.diamond5]), 
@@ -182,14 +172,14 @@ testResult('Straight over straight',
     [cards.club5, cards.diamond6, cards.heart7, cards.spade8, cards.club9],
     [cards.club4, cards.diamond5, cards.heart6, cards.spade7, cards.club8]
   ), 
-  { valid: true, type: 'straight', value: 9.1 });
+  { valid: true, type: 'straight', value: 9.2 });
 
 testResult('Flush over straight', 
   testValidatePlay(
     [cards.club3, cards.club6, cards.club9, cards.clubJ, cards.clubA],
     [cards.club4, cards.diamond5, cards.heart6, cards.spade7, cards.club8]
   ), 
-  { valid: true, type: 'flush', value: 14.1 });
+  { valid: true, type: 'flush', value: 14.2 });
 
 // Test groupCardsByValue
 console.log('\n--- Testing groupCardsByValue ---');
@@ -254,3 +244,7 @@ testResult('Has plays against a full house', playsAgainstFullHouse.length >= 0, 
 
 // Log test completion
 console.log('\n--- All Tests Completed ---');
+if (failedTests > 0) {
+  console.error(`${failedTests} test(s) failed.`);
+  process.exitCode = 1;
+}
