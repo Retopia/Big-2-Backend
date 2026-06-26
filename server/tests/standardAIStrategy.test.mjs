@@ -152,6 +152,65 @@ function runStandardAIStrategyTests() {
   assert.equal(leadResult.action, "play");
   assert.equal(leadResult.cards.length, 2);
   assert.ok(leadResult.cards.every((playedCard) => playedCard.value === "4"));
+
+  // Test 6: Low danger — rather than burn an Ace or break a pair to beat a low
+  // single, the AI should conserve and pass.
+  const conserveHand = [
+    card("A", "♠"),
+    card("7", "♥"),
+    card("7", "♦"),
+    card("3", "♣"),
+    card("3", "♦"),
+    card("4", "♣"),
+  ];
+  const conserveResult = decideMove(
+    conserveHand,
+    [card("5", "♠")],
+    makeGameState({
+      aiHandSize: conserveHand.length,
+      opponentHandSizes: [9, 10],
+      moveHistory: [{ name: "P1", handPlayed: [card("5", "♠")] }],
+    })
+  );
+  assert.equal(
+    conserveResult.action,
+    "pass",
+    "Expected AI to conserve (pass) instead of spending premium cards on a low single."
+  );
+
+  // Test 7: Same spot under high danger (opponent at 1 card) — must contest, not pass.
+  const contestResult = decideMove(
+    conserveHand,
+    [card("5", "♠")],
+    makeGameState({
+      aiHandSize: conserveHand.length,
+      opponentHandSizes: [1, 9],
+      moveHistory: [{ name: "P1", handPlayed: [card("5", "♠")] }],
+      round: 6,
+    })
+  );
+  assert.equal(
+    contestResult.action,
+    "play",
+    "Expected AI to contest the trick under high danger rather than conserve."
+  );
+
+  // Test 8: In the endgame the AI should take the trick (shed) instead of conserving.
+  const endgameConserveHand = [card("A", "♠"), card("7", "♥"), card("7", "♦")];
+  const endgameConserveResult = decideMove(
+    endgameConserveHand,
+    [card("5", "♠")],
+    makeGameState({
+      aiHandSize: endgameConserveHand.length,
+      opponentHandSizes: [9, 10],
+      moveHistory: [{ name: "P1", handPlayed: [card("5", "♠")] }],
+    })
+  );
+  assert.equal(
+    endgameConserveResult.action,
+    "play",
+    "Expected AI to take the trick in the endgame rather than conserve."
+  );
 }
 
 runStandardAIStrategyTests();

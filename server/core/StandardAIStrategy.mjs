@@ -6,6 +6,42 @@ const DANGER_LEVEL = {
   HIGH: 2,
 };
 
+const DECK_SUITS = ["♥", "♦", "♣", "♠"];
+const DECK_VALUES = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+
+function cardKey(card) {
+  return `${card.value}${card.suit}`;
+}
+
+/**
+ * Card counting: derive which cards are still unseen (i.e. could be in an
+ * opponent's hand) from our own hand plus everything in the move history. Used
+ * to relax control-card hoarding once the cards that could beat them are gone.
+ *
+ * Note: if cards use non-standard suits (e.g. in unit tests), nothing matches the
+ * real deck, so everything reads as "unseen" and the threat factors stay at 1 —
+ * i.e. card counting becomes a no-op and the base heuristic is unchanged.
+ */
+function buildCardKnowledge(aiHand, gameState) {
+  const seen = new Set();
+  (aiHand || []).forEach((card) => seen.add(cardKey(card)));
+  (gameState?.moveHistory || []).forEach((move) => {
+    (move?.handPlayed || []).forEach((card) => seen.add(cardKey(card)));
+  });
+
+  let unseenTwos = 0;
+  let unseenAces = 0;
+  for (const suit of DECK_SUITS) {
+    for (const value of DECK_VALUES) {
+      if (seen.has(`${value}${suit}`)) continue;
+      if (value === "2") unseenTwos += 1;
+      else if (value === "A") unseenAces += 1;
+    }
+  }
+
+  return { unseenTwos, unseenAces };
+}
+
 export function decideMove(aiHand, lastPlayedHand, gameState = null) {
   let possiblePlays = CardGame.calculatePossiblePlays(
     aiHand,
@@ -34,6 +70,17 @@ export function decideMove(aiHand, lastPlayedHand, gameState = null) {
 
   const selectedPlay = scoredPlays[0].play;
 
+  // Voluntary pass: when responding (passing is legal), don't burn premium cards
+  // or break up combos just to win a trick we don't need to. Only applies to the
+  // CHEAPEST available beat — if even that is too costly and there's no pressure,
+  // conserve and pass.
+  if (!context.isFirstPlay && shouldPassInsteadOf(selectedPlay, aiHand, context)) {
+    console.log(
+      `Standard AI: Pass (conserving — best beat ${formatCards(selectedPlay)} too costly)`
+    );
+    return { action: "pass" };
+  }
+
   console.log(
     `Standard AI: Play ${formatCards(selectedPlay)} [${getHandTypeString(selectedPlay)}] score=${scoredPlays[0].score.toFixed(2)}`
   );
@@ -44,6 +91,49 @@ export function decideMove(aiHand, lastPlayedHand, gameState = null) {
   };
 }
 
+/**
+ * Decide whether to pass rather than make `play` (the cheapest legal beat).
+ * Returns true only when the play spends premium resources with no good reason.
+ */
+function shouldPassInsteadOf(play, aiHand, context) {
+  // Never pass up a move that wins the game.
+  if (aiHand.length - play.length === 0) return false;
+  // Someone is about to win — we must contest the trick.
+  if (context.dangerLevel === DANGER_LEVEL.HIGH) return false;
+  // In the endgame we want to shed; take the trick.
+  if (context.isEndgame) return false;
+
+  const handInfo = CardGame.validateHand(play);
+  const twosSpent = play.filter((card) => getCardRank(card) === 15).length;
+  const acesSpent = play.filter((card) => getCardRank(card) === 14).length;
+  const isStrongBomb = play.length === 5 && CardGame.getHandRank(handInfo.type) >= 4;
+
+  const groupImpact = analyzeGroupImpact(aiHand, play, context);
+  const breaksStructure =
+    groupImpact.partialBreakPenalty +
+      groupImpact.breakingPairPenalty +
+      groupImpact.breakingTriplePenalty +
+      groupImpact.breakingQuadPenalty >
+    0;
+
+  // "Expensive" = burns a 2, a strong bomb, a lone Ace, or breaks an existing combo.
+  const expensive =
+    twosSpent > 0 ||
+    isStrongBomb ||
+    (acesSpent > 0 && play.length === 1) ||
+    breaksStructure;
+
+  if (!expensive) return false;
+
+  // Under medium pressure we still contest unless the cost is severe (a 2 or bomb).
+  if (context.dangerLevel === DANGER_LEVEL.MEDIUM) {
+    return twosSpent > 0 || isStrongBomb;
+  }
+
+  // Low danger + expensive → conserve.
+  return true;
+}
+
 function buildContext(aiHand, lastPlayedHand, gameState, possiblePlays) {
   const opponentInfo = extractOpponentInfo(gameState);
   const dangerLevel = getDangerLevel(opponentInfo);
@@ -51,6 +141,7 @@ function buildContext(aiHand, lastPlayedHand, gameState, possiblePlays) {
   const isEndgame = aiHand.length <= 5;
   const lastPlayInfo = !isFirstPlay ? CardGame.validateHand(lastPlayedHand) : null;
   const leadOptions = summarizeLeadOptions(possiblePlays);
+  const knowledge = buildCardKnowledge(aiHand, gameState);
 
   return {
     handSize: aiHand.length,
@@ -61,6 +152,7 @@ function buildContext(aiHand, lastPlayedHand, gameState, possiblePlays) {
     opponentInfo,
     lastPlayInfo,
     leadOptions,
+    knowledge,
   };
 }
 
@@ -142,7 +234,7 @@ function scorePlay(play, playIndex, aiHand, context) {
   }
 
   // Preserve high control cards unless opponents are about to win.
-  const acePenalty =
+  const baseAcePenalty =
     context.isEndgame
       ? 0.2
       : context.dangerLevel === DANGER_LEVEL.HIGH
@@ -150,7 +242,7 @@ function scorePlay(play, playIndex, aiHand, context) {
         : context.dangerLevel === DANGER_LEVEL.MEDIUM
           ? 1.4
           : 2.0;
-  const twoPenalty =
+  const baseTwoPenalty =
     context.isEndgame
       ? 0.5
       : context.dangerLevel === DANGER_LEVEL.HIGH
@@ -158,6 +250,14 @@ function scorePlay(play, playIndex, aiHand, context) {
         : context.dangerLevel === DANGER_LEVEL.MEDIUM
           ? 2.4
           : 3.8;
+
+  // Card counting: an Ace single is only beaten by a 2, and a 2 only by a higher
+  // 2. As those threats leave the deck, there's less reason to clutch ours — so
+  // scale the hoarding penalty down (never up) by how many threats remain unseen.
+  const aceThreatFactor = 0.35 + 0.65 * clamp01(context.knowledge.unseenTwos / 4);
+  const twoThreatFactor = 0.35 + 0.65 * clamp01(context.knowledge.unseenTwos / 4);
+  const acePenalty = baseAcePenalty * aceThreatFactor;
+  const twoPenalty = baseTwoPenalty * twoThreatFactor;
   score += acesSpent * acePenalty + twosSpent * twoPenalty;
   score += rankSpendPenalty;
 
@@ -353,6 +453,10 @@ function getDangerLevel(opponentInfo) {
   return DANGER_LEVEL.LOW;
 }
 
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
 function getCardRank(card) {
   switch (card.value) {
     case "2":
@@ -380,12 +484,14 @@ function calculateRankSpendPenalty(play, context) {
         ? 0.45
         : 1;
 
+  // Aces (14) and 2s (15) are handled separately by the ace/two hoarding penalty,
+  // so this only nudges face cards (K/Q/J) and rewards spending low cards.
   let penalty = 0;
   play.forEach((card) => {
     const rank = getCardRank(card);
-    if (rank >= 13 && rank < 14) penalty += 0.9 * rankWeight;
-    else if (rank >= 11 && rank < 13) penalty += 0.35 * rankWeight;
-    else if (rank <= 6) penalty -= 0.08;
+    if (rank === 13) penalty += 0.9 * rankWeight;        // King
+    else if (rank === 11 || rank === 12) penalty += 0.35 * rankWeight; // Jack / Queen
+    else if (rank <= 6) penalty -= 0.08;                 // low cards are cheap to spend
   });
 
   return penalty;
