@@ -181,6 +181,29 @@ testResult('Flush over straight',
   ), 
   { valid: true, type: 'flush', value: 14.2 });
 
+const fourEights = [cards.club8, cards.diamond8, cards.heart8, cards.spade8, cards.clubK];
+const clubStraightFlush = [cards.club4, cards.club5, cards.club6, cards.club7, cards.club8];
+
+testResult('Four of a kind bomb over single',
+  testValidatePlay(fourEights, [cards.spade2]),
+  { valid: true, type: 'four_of_a_kind', value: 8.1 });
+
+testResult('Four of a kind bomb over pair',
+  testValidatePlay(fourEights, [cards.clubA, cards.diamondA]),
+  { valid: true, type: 'four_of_a_kind', value: 8.1 });
+
+testResult('Straight flush bomb over triple',
+  testValidatePlay(clubStraightFlush, [cards.clubA, cards.diamondA, cards.heartA]),
+  { valid: true, type: 'straight_flush', value: 8.2 });
+
+testResult('Four of a kind cannot beat straight flush',
+  testValidatePlay(fourEights, clubStraightFlush),
+  { valid: false, message: 'You must play a higher ranked hand type' });
+
+testResult('Straight flush beats four of a kind',
+  testValidatePlay(clubStraightFlush, fourEights),
+  { valid: true, type: 'straight_flush', value: 8.2 });
+
 // Test groupCardsByValue
 console.log('\n--- Testing groupCardsByValue ---');
 const testHand = [cards.club3, cards.diamond3, cards.heart5, cards.spade5, cards.club8];
@@ -232,6 +255,15 @@ const possiblePlaysHand = [
 
 const playsAgainstLowSingle = calculatePossiblePlays(possiblePlaysHand, [cards.diamond2]);
 testResult('Has plays against a 2♦', playsAgainstLowSingle.length > 0, false);
+
+const bombPlayHand = [
+  cards.club4, cards.club5, cards.club6, cards.club7,
+  cards.club8, cards.diamond8, cards.heart8, cards.spade8, cards.clubK
+];
+const bombsAgainstTwo = calculatePossiblePlays(bombPlayHand, [cards.spade2]);
+testResult('AI can find bombs against a 2♠',
+  [...new Set(bombsAgainstTwo.map(play => validateHand(play).type))].sort(),
+  ['four_of_a_kind', 'straight_flush']);
 
 const playsAgainstPair = calculatePossiblePlays(possiblePlaysHand, [cards.club4, cards.diamond4]);
 testResult('Has plays against a pair of 4s', playsAgainstPair.length > 0, true);

@@ -11,7 +11,8 @@ CRITICAL RULE: You can ONLY select cards from the "VALID PLAYS" list provided to
 Basic Big 2 rules:
 - Single cards: 3 < 4 < 5 < 6 < 7 < 8 < 9 < 10 < J < Q < K < A < 2
 - Suits: ♦ < ♣ < ♥ < ♠ 
-- Match card count (single vs single, pair vs pair)
+- Match card count (single vs single, pair vs pair), except bombs
+- Four of a kind plus one card and straight flushes are bombs that beat any non-bomb hand
 
 Strategy: Generally prefer lower cards when leading, save high cards for later.
 
