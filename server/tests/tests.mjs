@@ -132,8 +132,8 @@ testResult('Four of a Kind', validateHand([cards.club8, cards.diamond8, cards.he
   { valid: true, type: "four_of_a_kind", value: 8.1 });
 testResult('Straight Flush', validateHand([cards.club4, cards.club5, cards.club6, cards.club7, cards.club8]), 
   { valid: true, type: "straight_flush", value: 8.1 });
-testResult('Royal Flush', validateHand([cards.club10, cards.clubJ, cards.clubQ, cards.clubK, cards.clubA]), 
-  { valid: true, type: "royal_flush", value: 14.1 });
+testResult('Straight Flush 10-A', validateHand([cards.club10, cards.clubJ, cards.clubQ, cards.clubK, cards.clubA]),
+  { valid: true, type: "straight_flush", value: 14.2 });
 
 // Setup for validatePlay tests
 let lastPlayedHand = [];

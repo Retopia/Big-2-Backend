@@ -1,7 +1,9 @@
 {
   "scripts": {
     "dev": "nodemon server/index.mjs",
-    "test:ai": "node server/tests/standardAIStrategy.test.mjs"
+    "test": "npm run test:ai && npm run test:cards",
+    "test:ai": "node server/tests/standardAIStrategy.test.mjs",
+    "test:cards": "node server/tests/cardRules.test.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

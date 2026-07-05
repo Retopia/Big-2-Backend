@@ -48,20 +48,16 @@ export function isFullHouse(cards) {
 
 // Helper functions for hand validation
 export function isStraight(cards) {
-  // Convert card values to numeric values for comparison
-  const values = cards.map(card => {
-    switch (card.value) {
-      case 'A': return 14;
-      case 'K': return 13;
-      case 'Q': return 12;
-      case 'J': return 11;
-      default: return parseInt(card.value);
-    }
-  }).sort((a, b) => a - b);
+  // A straight is five consecutive ranks in Big 2 order (3 < 4 < ... < K < A < 2)
+  // with NO wrap-around: the lowest is 3-4-5-6-7 and the highest is J-Q-K-A-2.
+  // Therefore 2-3-4-5-6 and A-2-3-4-5 are NOT straights. Using the integer part of
+  // getCardValue keeps this ordering consistent with how straights are ranked.
+  const ranks = cards
+    .map((card) => Math.floor(getCardValue(card)))
+    .sort((a, b) => a - b);
 
-  // Check if it's a sequence
-  for (let i = 1; i < values.length; i++) {
-    if (values[i] !== values[i - 1] + 1) {
+  for (let i = 1; i < ranks.length; i++) {
+    if (ranks[i] !== ranks[i - 1] + 1) {
       return false;
     }
   }
@@ -126,21 +122,14 @@ export function validateHand(cards) {
     // Check for full house
     const fullHouseResult = isFullHouse(sortedCards);
 
-    // Royal Flush (straight flush with A high)
-    if (straightResult && flushResult && sortedCards[4].value === 'A') {
-      return {
-        valid: true,
-        type: "royal_flush",
-        value: getCardValue(sortedCards[4]) // Ace value
-      };
-    }
-
-    // Straight Flush
+    // Straight Flush (straight + flush). All straight flushes are one type and are
+    // compared by their highest card — there is no separate "royal flush", so a
+    // J-Q-K-A-2 straight flush correctly outranks a 10-J-Q-K-A one.
     if (straightResult && flushResult) {
       return {
         valid: true,
         type: "straight_flush",
-        value: getCardValue(sortedCards[4]) // Highest card
+        value: getCardValue(sortedCards[4]) // Highest card of the run
       };
     }
 
@@ -277,8 +266,7 @@ export function getHandRank(handType) {
     "flush": 2,
     "full_house": 3,
     "four_of_a_kind": 4,
-    "straight_flush": 5,
-    "royal_flush": 6
+    "straight_flush": 5
   };
 
   return rankings[handType] || 0;

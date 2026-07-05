@@ -37,16 +37,22 @@ export default function registerProfileRoutes(app) {
         return;
       }
 
-      // 1-based leaderboard rank: how many (non-deleted) players outrank this user,
-      // plus one. Excluding deleted accounts keeps this consistent with the board.
+      // 1-based leaderboard rank. This MUST use the exact same ordering as the
+      // leaderboard (rating DESC, created_at ASC, id ASC) so a tie doesn't rank
+      // differently here than on the board: count everyone ordered strictly ahead.
       const rankResult = await query(
         `
           SELECT COUNT(*) + 1 AS rank
           FROM ratings r
           JOIN users u ON u.id = r.user_id
           JOIN ratings me ON me.user_id = $1
+          JOIN users meu ON meu.id = $1
           WHERE u.deleted_at IS NULL
-            AND r.rating > me.rating
+            AND (
+              r.rating > me.rating
+              OR (r.rating = me.rating AND u.created_at < meu.created_at)
+              OR (r.rating = me.rating AND u.created_at = meu.created_at AND u.id < meu.id)
+            )
         `,
         [userId]
       );

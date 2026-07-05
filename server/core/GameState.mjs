@@ -59,60 +59,42 @@ export class GameState {
       // There's 1 card left over, we'll give it to the player with the lowest card
     }
 
-    // Find player with the lowest card (3 of clubs with value 3.1)
-    let lowestCardPlayerIndex = 0;
-    let lowestCardValue = Infinity;
-    let foundLowestClub = false;
-
-    // First search for the 3 of clubs (value 3.1) specifically
-    for (let i = 0; i < this.players.length; i++) {
-      const playerName = this.players[i].name;
-      const hand = this.playerHands[playerName];
-
-      for (const card of hand) {
-        const cardValue = CardGame.getCardValue(card);
-        if (cardValue === 3.1) {
-          lowestCardPlayerIndex = i;
-          lowestCardValue = cardValue
-          foundLowestClub = true;
-          break;
-        }
-      }
-
-      if (foundLowestClub) break;
-    }
-
-    // If 3 of clubs wasn't found (possible in 2-player mode), find the lowest card
-    if (!foundLowestClub && this.players.length === 2) {
+    // Find the player holding the lowest card currently dealt. The 3 of diamonds
+    // (value 3.1 — ♦ is the lowest suit) is the global minimum whenever it's in
+    // play; otherwise this is the lowest card among the dealt hands (only possible
+    // in 2-player, where some cards are discarded).
+    const findLowestHolder = () => {
+      let index = 0;
+      let value = Infinity;
       for (let i = 0; i < this.players.length; i++) {
-        const playerName = this.players[i].name;
-        const hand = this.playerHands[playerName];
-
+        const hand = this.playerHands[this.players[i].name];
         for (const card of hand) {
           const cardValue = CardGame.getCardValue(card);
-          if (cardValue < lowestCardValue) {
-            lowestCardValue = cardValue;
-            lowestCardPlayerIndex = i;
+          if (cardValue < value) {
+            value = cardValue;
+            index = i;
           }
         }
       }
-    }
+      return { index, value };
+    };
 
-
-    // If there's a leftover card (in 2 or 3 player mode), give it to the player with the lowest card
+    // In 2/3-player games one card is left over — give it to the current
+    // lowest-card holder.
     if (this.players.length < 4 && this.deck.length > 0) {
-      const extraCard = this.deck.pop();
-      const playerWithLowestCard = this.players[lowestCardPlayerIndex].name;
-      this.playerHands[playerWithLowestCard].push(extraCard);
+      const { index } = findLowestHolder();
+      this.playerHands[this.players[index].name].push(this.deck.pop());
     }
 
-    console.log("Lowest card value:", lowestCardValue);
+    // Authoritatively set the starting player + lowest card AFTER the leftover is
+    // dealt. Doing this beforehand deadlocked 3-player games when the 3♣ was the
+    // leftover: lowestCardValue stayed Infinity and no opening play was ever legal.
+    const { index: startIndex, value: startValue } = findLowestHolder();
+    this.lowestCardValue = startValue;
+    this.currentPlayerIndex = startIndex;
 
-    this.lowestCardValue = lowestCardValue;
-
-    // Set the starting player to the one with the lowest card
-    this.currentPlayerIndex = lowestCardPlayerIndex;
-    console.log(`Game starts with player: ${this.players[lowestCardPlayerIndex].name}`);
+    console.log("Lowest card value:", startValue);
+    console.log(`Game starts with player: ${this.players[startIndex].name}`);
   }
 
   playCards(playerName, cards) {

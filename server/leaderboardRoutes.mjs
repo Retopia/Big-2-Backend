@@ -18,7 +18,7 @@ export default function registerLeaderboardRoutes(app) {
         `
           SELECT
             ROW_NUMBER() OVER (
-              ORDER BY ratings.rating DESC, ratings.games_played DESC, users.username ASC
+              ORDER BY ratings.rating DESC, users.created_at ASC, users.id ASC
             ) AS rank,
             users.id,
             users.username,
@@ -30,7 +30,7 @@ export default function registerLeaderboardRoutes(app) {
           FROM ratings
           JOIN users ON users.id = ratings.user_id
           WHERE users.deleted_at IS NULL
-          ORDER BY ratings.rating DESC, ratings.games_played DESC, users.username ASC
+          ORDER BY ratings.rating DESC, users.created_at ASC, users.id ASC
           LIMIT $1
         `,
         [limit]
