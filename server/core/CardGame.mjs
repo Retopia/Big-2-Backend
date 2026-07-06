@@ -221,6 +221,12 @@ export function validatePlay(moveHistory, lastPlayedHand, cards, lowestCardValue
   // Validate the last played hand
   const lastPlayedValid = validateHand(lastPlayedHand);
 
+  // Bombs can take control from any non-bomb hand, regardless of card count.
+  // Bomb-versus-bomb plays still follow the normal 5-card hierarchy below.
+  if (isBombHandType(handValid.type) && !isBombHandType(lastPlayedValid.type)) {
+    return handValid;
+  }
+
   // Simple hands (single, pair, triple) must match types
   if (cards.length < 5) {
     // Must be the same type
@@ -270,6 +276,10 @@ export function getHandRank(handType) {
   };
 
   return rankings[handType] || 0;
+}
+
+export function isBombHandType(handType) {
+  return handType === "four_of_a_kind" || handType === "straight_flush";
 }
 
 export function sortPlaysByStrength(plays) {
@@ -368,6 +378,17 @@ export function calculatePossiblePlays(cards, lastPlayedHand, moveHistory = null
         }
       }
     });
+  }
+
+  // Four of a kind and straight flushes can beat any non-bomb hand, including
+  // singles, pairs, and triples. The 5-card branch already includes bombs when
+  // responding to another 5-card hand.
+  if (lastPlayedHand.length < 5) {
+    const bombPlays = getAllFiveCardCombinations(cards).filter(combo => {
+      const handResult = validateHand(combo);
+      return handResult.valid && isBombHandType(handResult.type);
+    });
+    possiblePlays.push(...bombPlays);
   }
 
   // Handle 5-card hands
