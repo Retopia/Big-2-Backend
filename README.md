@@ -9,7 +9,7 @@ variables before starting the server:
 | Variable | Description |
 | --- | --- |
 | `OPENROUTER_API_KEY` | Required. API key issued by [openrouter.ai](https://openrouter.ai). |
-| `OPENROUTER_MODEL` | Optional. Initial default model (runtime default is `x-ai/grok-4-fast`). |
+| `OPENROUTER_MODEL` | Optional. Initial default model (runtime default is `anthropic/claude-haiku-5.5`). Admin overrides last until restart. Requests disable reasoning. |
 | `OPENROUTER_SITE_URL` | Optional but recommended. URL identifying the calling site for OpenRouter telemetry. |
 | `OPENROUTER_APP_NAME` | Optional. Human-readable application name sent to OpenRouter. |
 

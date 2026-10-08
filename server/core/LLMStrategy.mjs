@@ -3,7 +3,7 @@ import * as StandardAIStrategy from './StandardAIStrategy.mjs';
 import { getActiveLLMModel } from '../state.mjs';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = 'x-ai/grok-4-fast';
+const DEFAULT_MODEL = 'anthropic/claude-haiku-5.5';
 const SYSTEM_PROMPT = `You are a Big 2 card game assistant.
 
 CRITICAL RULE: You can ONLY select cards from the "VALID PLAYS" list provided to you. Do not create your own combinations.
@@ -14,7 +14,8 @@ Basic Big 2 rules:
 - Match card count (single vs single, pair vs pair), except bombs
 - Four of a kind plus one card and straight flushes are bombs that beat any non-bomb hand
 
-Strategy: Generally prefer lower cards when leading, save high cards for later.
+Strategy: Your goal is to empty your hand first, not merely play the weakest legal move.
+Consider the hand remaining after each candidate. Preserve useful pairs, triples and five-card combinations unless breaking them improves your finish. Prefer efficient multi-card plays when they leave a strong remaining hand. Preserve control cards when they can help regain the lead. When an opponent has few cards left, prioritize preventing their finish. Pass strategically, but never pass when leading. If a legal play empties your hand, choose it immediately. Opponents' hidden cards are unknown; do not invent them.
 
 Reply with JSON only:
 {"action":"pass","explanation":"reason"} or {"action":"play","cards":[exact cards from list],"explanation":"reason"}
@@ -194,12 +195,13 @@ function buildUserPrompt(aiHand, lastPlayedHand, possiblePlays, gameState) {
     `Round: ${round} | Your hand: ${formatHand(aiHand)}`,
     `Last played: ${lastPlayDescription}`,
     'Opponents: ' + opponentSummaries,
+    'Recent public plays: ' + history,
     '',
     '*** VALID PLAYS - CHOOSE EXACTLY FROM THIS LIST ***',
     possiblePlays.length > 0 ? playsDescription : 'None - you must pass',
     '',
     possiblePlays.length > 0 ? 
-      (isLeading ? 'Tip: When leading, prefer lower-numbered options from the list above.' : 'Tip: Choose from above or pass.') :
+      (isLeading ? 'Tip: Evaluate the remaining hand, combinations and control; list order is not a strategy ranking.' : 'Tip: Choose from above or pass.') :
       'You must pass - no valid plays available.',
     'Format: {"action":"play","cards":[copy exact cards from list above],"explanation":"brief reason"}'
   ].join('\n');
